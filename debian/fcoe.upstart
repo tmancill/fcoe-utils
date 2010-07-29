@@ -1,0 +1,34 @@
+description "fcoe daemon"
+author "Chuck Short <zulcss@ubuntu.com>"
+
+start on runlevel [2345]
+stop on runlevel [!2345]
+
+expect daemon
+respawn
+
+env FCOE_CONF=/etc/fcoe/open-fcoe.conf
+
+pre-start script
+	do_modprobe() {
+		modprobe -q "$1" || true
+	}
+
+	rm -f /var/run/fcoemon.*
+	modprobe libfc
+	modprobe fcoe
+end script
+
+script
+	HBA=
+	fcoe_gethba() {
+		HBA=grep -v "#" $FCOE_CONF | grep "HBA=" | cut -f2 -d=`
+		if ! ifconfig $HBA &> /dev/null
+		then
+			HBA=
+		fi
+	}
+
+	fcoe_gethba
+	exec /usr/sbin/fcoeadm --create $HBA
+end script
