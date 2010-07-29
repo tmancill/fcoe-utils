@@ -1,0 +1,169 @@
+#!/bin/sh
+#
+# Copyright(c) 2010 Intel Corporation. All rights reserved.
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms and conditions of the GNU General Public License,
+# version 2, as published by the Free Software Foundation.
+#
+# This program is distributed in the hope it will be useful, but WITHOUT
+# ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+# FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+# more details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program; if not, write to the Free Software Foundation, Inc.,
+# 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
+#
+# Maintained at www.Open-FCoE.org
+#
+#
+# Open-FCoE User-Space Software
+# Based on:
+#     Template LSB system startup script for example service/daemon FOO
+#     Copyright (C) 1995--2005  Kurt Garloff, SUSE / Novell Inc.
+#
+# /etc/init.d/fcoe         This shell script takes care of starting and stopping
+#                          of the fcoemon daemon
+#   and its symbolic link
+# /sbin/rcfcoe
+#
+# chkconfig: 345 20 80
+#
+### BEGIN INIT INFO
+# Provides: fcoe
+# Required-Start: network
+# Required-Stop:
+# Default-Start: 3 5
+# Default-Stop: 3 5
+# Description: Open-FCoE Initiator
+### END INIT INFO
+
+CONFIG_DIR=/etc/fcoe
+PID_FILE="/var/run/fcoemon.pid"
+LOG_FILE="/var/log/fcoemon.log"
+FCOEMON=/usr/sbin/fcoemon
+FCOEADM=/usr/sbin/fcoeadm
+DCBD=dcbd
+FCOEMON_OPTS=
+
+. /etc/rc.status
+rc_reset
+
+. $CONFIG_DIR/config
+
+if [ "$USE_SYSLOG" = "yes" ] || [ "$USE_SYSLOG" = "YES" ]; then
+    FCOEMON_OPTS+=" --syslog"
+fi
+
+if [ "$DEBUG" = "yes" ] || [ "$DEBUG" = "YES" ]; then
+	FCOEMON_OPTS+=" --debug"
+fi
+
+test -x $FCOEADM || {
+	echo "$FCOEADM not installed";
+	if [ "$1" = "stop" ]; then exit 0;
+	else
+		rc_failed
+		rc_status -v
+		rc_exit
+	fi
+}
+
+test -x $FCOEMON || {
+	echo "$FCOEMON not installed";
+	if [ "$1" = "stop" ]; then exit 0;
+	else
+		rc_failed
+		rc_status -v
+		rc_exit
+	fi
+}
+
+startup_fcoe_modules()
+{
+	modprobe fcoe > /dev/null 2>&1
+}
+
+start()
+{
+	echo -n $"Starting FCoE initiator service: "
+
+	startup_fcoe_modules
+
+	startproc -l ${LOG_FILE} -p ${PID_FILE} ${FCOEMON} ${FCOEMON_OPTS}
+
+	rc_status -v
+}
+
+stop()
+{
+	local force=$1
+
+	pid=$(pidof "$FCOEMON")
+	if [ "$force" == "force" ]
+	then
+		echo -n "Destroying any active fcoe interface/s"
+		[ "$pid" ] && kill -HUP $pid
+		rc_status -v
+	else
+		[ "$pid" ] && kill -TERM $pid
+	fi
+
+	echo -n $"Stopping FCoE initiator service: "
+
+	rm -f /var/run/fcoemon.*
+	rm -f /tmp/fcoemon.dcbd.*
+
+	rc_status -v
+}
+
+status()
+{
+	echo -n "Checking status for fcoe service "
+	checkproc -p ${PID_FILE} ${FCOEMON}
+	rc_status -v
+	interfaces=`$FCOEADM -i 2>&1 | \
+		    awk '/Symbolic Name:/{print $6}' | \
+		    sort | awk '{printf("%s ", $1)}'`
+	if [ -z "$interfaces" ]; then
+		echo "No interfaces created."
+	else
+		echo "Created interfaces: $interfaces"
+	fi
+}
+
+case "$1" in
+	start)
+		start
+		;;
+
+	stop)
+		stop $2
+		;;
+
+	restart)
+		stop $2
+		start
+		rc_status
+		;;
+
+	force-reload)
+		echo "force-reload not yet implemented"
+		;;
+
+	reload)
+		echo "reload not yet implemented"
+		rc_failed 3
+		;;
+
+	status)
+		status
+		;;
+
+	*)
+		echo "Usage: $0 {start|stop [force]|status|restart [force]}"
+		exit 1
+		;;
+esac
+rc_exit
