@@ -65,10 +65,10 @@ static void fcoeadm_help(void)
 	       "\t [-h|--help]\n\n", progname);
 }
 
-static enum fcoe_err fcoeadm_clif_request(struct clif_sock_info *clif_info,
-					  const struct clif_data *cmd,
-					  size_t cmd_len, char *reply,
-					  size_t *reply_len)
+static enum fcoe_status fcoeadm_clif_request(struct clif_sock_info *clif_info,
+					     const struct clif_data *cmd,
+					     size_t cmd_len, char *reply,
+					     size_t *reply_len)
 {
 	struct timeval tv;
 	int ret;
@@ -95,15 +95,15 @@ static enum fcoe_err fcoeadm_clif_request(struct clif_sock_info *clif_info,
 		}
 	}
 
-	return NOERR;
+	return SUCCESS;
 }
 
-static enum fcoe_err fcoeadm_request(struct clif_sock_info *clif_info,
-				     struct clif_data *data)
+static enum fcoe_status fcoeadm_request(struct clif_sock_info *clif_info,
+					struct clif_data *data)
 {
 	char rbuf[MAX_MSGBUF];
 	size_t len;
-	int rc = NOERR;
+	int rc = SUCCESS;
 
 	/*
 	 * TODO: This is odd that we read the response code back as a
@@ -123,31 +123,25 @@ static enum fcoe_err fcoeadm_request(struct clif_sock_info *clif_info,
 	return rc;
 }
 
-static void fcoeadm_close_cli(struct clif_sock_info *clif_info)
+static inline void fcoeadm_close_cli(struct clif_sock_info *clif_info)
 {
-	unlink(clif_info->local.sun_path);
 	close(clif_info->socket_fd);
 }
 
 /*
  * Create fcoeadm client interface
  */
-static enum fcoe_err fcoeadm_open_cli(struct clif_sock_info *clif_info)
+static enum fcoe_status fcoeadm_open_cli(struct clif_sock_info *clif_info)
 {
-	enum fcoe_err rc = NOERR;
+	enum fcoe_status rc = SUCCESS;
 
 	clif_info->socket_fd = socket(PF_UNIX, SOCK_DGRAM, 0);
-	if (clif_info->socket_fd < 0) {
-		rc = ENOMONCONN;
-		goto err;
-	}
+	if (clif_info->socket_fd < 0)
+		return ENOMONCONN;
 
 	clif_info->local.sun_family = AF_UNIX;
-	snprintf(clif_info->local.sun_path, sizeof(clif_info->local.sun_path),
-		 "/tmp/fcadm_clif_%d", getpid());
-
 	if (bind(clif_info->socket_fd, (struct sockaddr *)&clif_info->local,
-		 sizeof(clif_info->local)) < 0) {
+		 sizeof(clif_info->local.sun_family)) < 0) {
 		rc = ENOMONCONN;
 		goto err_close;
 	}
@@ -156,10 +150,9 @@ static enum fcoe_err fcoeadm_open_cli(struct clif_sock_info *clif_info)
 	strncpy(clif_info->dest.sun_path, CLIF_SOCK_FILE,
 		sizeof(clif_info->dest.sun_path));
 
-	if (!connect(clif_info->socket_fd, (struct sockaddr *)&clif_info->dest,
+	if (connect(clif_info->socket_fd, (struct sockaddr *)&clif_info->dest,
 		     sizeof(clif_info->dest)) < 0) {
 		rc = ENOMONCONN;
-		unlink(clif_info->local.sun_path);
 		goto err_close;
 	}
 
@@ -167,18 +160,17 @@ static enum fcoe_err fcoeadm_open_cli(struct clif_sock_info *clif_info)
 
 err_close:
 	close(clif_info->socket_fd);
-err:
 	return rc;
 }
 
 /*
  * Send request to fcoemon
  */
-static enum fcoe_err fcoeadm_action(enum clif_action cmd, char *ifname)
+static enum fcoe_status fcoeadm_action(enum clif_action cmd, char *ifname)
 {
 	struct clif_data data;
 	struct clif_sock_info clif_info;
-	enum fcoe_err rc;
+	enum fcoe_status rc;
 
 	strncpy(data.ifname, ifname, sizeof(data.ifname));
 	data.cmd = cmd;
@@ -208,7 +200,7 @@ static enum fcoe_err fcoeadm_action(enum clif_action cmd, char *ifname)
 int main(int argc, char *argv[])
 {
 	enum clif_action cmd = CLIF_NONE;
-	enum fcoe_err rc = NOERR;
+	enum fcoe_status rc = SUCCESS;
 	int opt, stat_interval;
 	char *ifname = NULL;
 
@@ -357,12 +349,21 @@ int main(int argc, char *argv[])
 err:
 	if (rc) {
 		switch (rc) {
+		case EFAIL:
+			FCOE_LOG_ERR("Command failed\n");
+			break;
+
+		case ENOACTION:
+			FCOE_LOG_ERR("No action was taken\n");
+			break;
+
 		case EFCOECONN:
 			FCOE_LOG_ERR("Connection already created on "
 				     "interface %s\n", ifname);
 			break;
 
 		case ENOFCOECONN:
+		case ENOFCHOST:
 			FCOE_LOG_ERR("No connection created on "
 				     "interface %s\n", ifname);
 			break;
@@ -414,7 +415,7 @@ err:
 			/*
 			 * This will catch EOPNOTSUPP which should never happen
 			 */
-			FCOE_LOG_ERR("Unknown error\n");
+			FCOE_LOG_ERR("Unknown error code %d\n", rc);
 			break;
 		}
 

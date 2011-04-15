@@ -32,14 +32,6 @@
 #include <dirent.h>
 #include <errno.h>
 
-/*
- * Used when trying to get the interface name from the symbolic_name.
- * Not very elegant as this code will need to change if fcoe.ko changes
- * its version.
- */
-#define FCOE_MODULE_VERSION "v0.1"
-#define SYMB_NAME_LEAD "fcoe " FCOE_MODULE_VERSION " over "
-
 #define MAX_STR_LEN 512
 #define MAX_PATH_LEN MAX_STR_LEN
 
@@ -59,10 +51,13 @@
 	} while (0)
 
 
-enum fcoe_err {
-	NOERR = 0,    /* No error */
+enum fcoe_status {
+	SUCCESS = 0,  /* Success */
+	EFAIL,        /* Command Failed */
+	ENOACTION,    /* No action was taken */
 	EFCOECONN,    /* FCoE connection already exists */
 	ENOFCOECONN,  /* No FCoE connection on interface */
+	ENOFCHOST,    /* FC Host found */
 	EINTERR,      /* Internal error */
 	EINVALARG,    /* Invalid argument */
 	EBADNUMARGS,  /* Invalid number of arguments */
@@ -74,9 +69,9 @@ enum fcoe_err {
 	EHBAAPIERR,   /* Error using HBAAPI/libhbalinux */
 };
 
-enum fcoe_err fcoe_validate_interface(char *ifname);
-enum fcoe_err fcoe_validate_fcoe_conn(char *ifname);
-enum fcoe_err fcoe_find_fchost(char *ifname, char *fchost, int len);
+enum fcoe_status fcoe_validate_interface(char *ifname);
+enum fcoe_status fcoe_validate_fcoe_conn(char *ifname);
+enum fcoe_status fcoe_find_fchost(char *ifname, char *fchost, int len);
 int fcoe_checkdir(char *dir);
 int check_symbolic_name_for_interface(const char *symbolic_name,
 				      const char *ifname);

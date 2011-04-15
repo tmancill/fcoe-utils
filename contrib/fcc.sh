@@ -1,6 +1,6 @@
 #! /bin/bash
 #
-# Copyright 2008-2009 Cisco Systems, Inc.  All rights reserved.
+# Copyright 2008-2010 Cisco Systems, Inc.  All rights reserved.
 #
 # This program is free software; you may redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@
 #
 # Please send comments and changes to jeykholt at cisco dot com
 
-VERSION="fcc v1.0.3 02/19/2010"
+VERSION="fcc v1.0.13 11/10/2010"
 
 fcoe_dir=/sys/module/fcoe
 fdir=/sys/class/fc_host
@@ -31,17 +31,19 @@ cat <<USAGE
 usage: $cmdname '[<cmd> [<hba> ...]]'
 
 cmd:
-	create 		Start FCoE on an ethernet interface.
+	create 		Start FCoE on an Ethernet interface.
+	create-vn	Start FCoE (VN_port-VN_port) on an Ethernet interface.
 	delete / del	Delete an FCoE instance
-	destroy 	Same as destroy
+	destroy 	Same as delete
 	enable / en	Same as create
 	help		Show this usage message
 	info		Show HBA detailed info
 	list		List the HBAs with remote port and LUN status
 	luns		Show LUN list and status
-	stats		Show HBA statistics
-	reset		Reset the HBA
 	scan		Scan the HBA
+	stats		Show HBA statistics
+	reload		Reload fcoe and fnic modules
+	reset		Reset the HBA
 	version		Show version
 USAGE
 }
@@ -160,7 +162,8 @@ lun_list() {
 
 	host=`echo $hba | sed -e 's/host//'`
 
-	local luns=`(cd $ddir && ls -d $host:*) 2>/dev/null`
+	local luns=`(cd $ddir &&
+		 ls -d $host:* | sort -n -t: -k1 -k2 -k3 -k4) 2>/dev/null`
 
 	if [ -z "$luns" ]
 	then
@@ -343,15 +346,9 @@ repeat() {
 }
 
 fcoe_ctl() {
-	local hba=$1
-	local cmd=$2
-	local file=$fcoe_dir/parameters/$2
-	local old_file=$fcoe_dir/$2
-
-	if [ -w "$old_file" ]
-	then
-		file=$old_file
-	fi
+	local cmd=$1
+	local hba=$2
+	local file=$fcoe_dir/parameters/$cmd
 
 	if [ -w "$file" ]
 	then
@@ -366,9 +363,9 @@ fcoe_ctl() {
 }
 
 fc_host_ctl() {
-	local hba=$1
-	local host=$1
-	local cmd=$2
+	local hba=$2
+	local host=$2
+	local cmd=$1
 	local value
 	local file
 	local dir
@@ -408,6 +405,21 @@ fc_host_ctl() {
 	fi
 }
 
+load_mod()
+{
+	if [ ! -d $fcoe_dir ]
+	then
+		modprobe fcoe
+		echo "$cmdname: loading fcoe module" >&2
+		sleep 1
+		if [ ! -d $fcoe_dir ]
+		then
+			echo "$cmdname: $fcoe_dir not found" >&2
+			exit 2
+		fi
+	fi
+}
+
 #
 # Start of main script code.
 #
@@ -418,7 +430,8 @@ then
 fi
 if [ -d "$fdir" ]
 then
-	all_hbas=`ls $fdir 2>/dev/null`
+	# sort the list of HBAs by the number after the 't' in "host9"
+	all_hbas=`ls $fdir 2>/dev/null | sort -n -tt -k2`
 fi
 hbas="$all_hbas"
 
@@ -449,20 +462,25 @@ else
 	fi
 fi
 
+hba_required()
+{
+	if [ "$hba_spec" != y ]
+	then
+		echo "$cmdname: $cmd requires HBA name" >&2
+		exit 2
+	fi
+}
+
 case "$cmd" in
 	create | enable | en)
-		if [ ! -d $fcoe_dir ]
-		then
-			modprobe fcoe
-			echo "$cmdname: loading fcoe module" >&2
-			sleep 1
-			if [ ! -d $fcoe_dir ]
-			then
-				echo "$cmdname: $fcoe_dir not found" >&2
-				exit 2
-			fi
-		fi
-		fcoe_ctl $hba create
+		hba_required
+		load_mod
+		repeat "fcoe_ctl create" $hbas
+		;;
+	create-vn)
+		hba_required
+		load_mod
+		repeat "fcoe_ctl create_vn2vn" $hbas
 		;;
 	delete | del | destroy)
 		if [ ! -d $fcoe_dir ]
@@ -470,7 +488,8 @@ case "$cmd" in
 			echo "$cmdname: $fcoe_dir not found" >&2
 			exit 2
 		fi
-		fcoe_ctl $hba destroy
+		hba_required
+		repeat "fcoe_ctl destroy" $hbas
 		;;
 	info)
 		repeat hba_info $hbas
@@ -490,16 +509,24 @@ case "$cmd" in
 	realname)
 		hba_name $hba
 		;;
-	reset | scan)
-		if [ "$hba_spec" != y ]
-		then
-			echo "$cmdname: $cmd requires hba name" >&2
-			exit 2
-		fi
-		for hba in $hbas
+	reload)
+		mods=
+		for mod in fcoe fnic libfcoe libfc
 		do
-			fc_host_ctl $hba $cmd || break
+			if [ -d /sys/module/$mod ]
+			then
+				mods="$mods $mod"
+			fi
 		done
+		rmmod $mods
+		for mod in $mods
+		do
+			modprobe $mod
+		done
+		;;
+	reset | scan)
+		hba_required
+		repeat "fc_host_ctl $cmd" $hbas
 		;;
 	version)
 		echo $VERSION

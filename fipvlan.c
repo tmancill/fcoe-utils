@@ -80,6 +80,11 @@ static int pfd_len = 0;
 void pfd_add(int fd)
 {
 	struct pollfd *npfd;
+	int i;
+
+	for (i = 0; i < pfd_len; i++)
+		if (pfd[i].fd == fd)
+			return;
 
 	npfd = realloc(pfd, (pfd_len + 1) * sizeof(struct pollfd));
 	if (!npfd) {
@@ -182,12 +187,12 @@ struct fip_tlv_ptrs {
 
 #define SET_BIT(b, n)	((b) |= (1 << (n)))
 
-#define TLV_LEN_CHECK(t, l) ({ \
-	int _tlc = ((t)->tlv_len != (l)) ? 1 : 0; \
-	if (_tlc) \
+#define TLV_LEN_CHECK(t, l) ({						\
+	int _tlc = ((t)->tlv_len != (l)) ? 1 : 0;			\
+	if (_tlc)							\
 		FIP_LOG("bad length for TLV of type %d", (t)->tlv_type); \
-	_tlc; \
-})
+	_tlc;								\
+	})
 
 /**
  * fip_parse_tlvs - parse type/length/value encoded FIP descriptors
@@ -319,6 +324,8 @@ void rtnl_recv_newlink(struct nlmsghdr *nh)
 		iff->running = (ifm->ifi_flags & IFF_RUNNING) == IFF_RUNNING;
 		if (iff->running)
 			pfd_add(iff->ps);
+		else
+			pfd_remove(iff->ps);
 		return;
 	}
 
@@ -388,14 +395,14 @@ static const struct option long_options[] = {
 static void help(int status)
 {
 	printf(
-"Usage: %s [ options ] [ network interfaces ]\n"
-"Options:\n"
-"  -a, --auto           Auto select Ethernet interfaces\n"
-"  -c, --create		Create system VLAN devices\n"
-"  -s, --start		Start FCoE login automatically\n"
-"  -h, --help           Display this help and exit\n"
-"  -v, --version        Display version information and exit\n",
-	exe);
+		"Usage: %s [ options ] [ network interfaces ]\n"
+		"Options:\n"
+		"  -a, --auto           Auto select Ethernet interfaces\n"
+		"  -c, --create		Create system VLAN devices\n"
+		"  -s, --start		Start FCoE login automatically\n"
+		"  -h, --help           Display this help and exit\n"
+		"  -v, --version        Display version information and exit\n",
+		exe);
 
 	exit(status);
 }
@@ -427,7 +434,7 @@ void parse_cmdline(int argc, char **argv)
 			break;
 		default:
 			fprintf(stderr, "Try '%s --help' "
-					"for more information\n", exe);
+				"for more information\n", exe);
 			exit(1);
 		}
 	}
@@ -534,14 +541,14 @@ void print_results()
 	TAILQ_FOREACH(fcf, &fcfs, list_node) {
 		iff = lookup_iff(fcf->ifindex, NULL);
 		printf("%-16.16s| %-5d| %2.2x:%2.2x:%2.2x:%2.2x:%2.2x:%2.2x\n",
-			iff->ifname, fcf->vlan,
-			fcf->mac_addr[0], fcf->mac_addr[1], fcf->mac_addr[2],
-			fcf->mac_addr[3], fcf->mac_addr[4], fcf->mac_addr[5]);
+		       iff->ifname, fcf->vlan,
+		       fcf->mac_addr[0], fcf->mac_addr[1], fcf->mac_addr[2],
+		       fcf->mac_addr[3], fcf->mac_addr[4], fcf->mac_addr[5]);
 	}
 	printf("\n");
 }
 
-void recv_loop(struct pollfd *pfd, int pfd_len, int timeout)
+void recv_loop(int timeout)
 {
 	int i;
 	int rc;
@@ -625,12 +632,12 @@ retry:
 	skipped += send_vlan_requests();
 	if (skipped && skip_retry_count++ < 30) {
 		FIP_LOG_DBG("waiting for IFF_RUNNING [%d]\n", skip_retry_count);
-		recv_loop(pfd, pfd_len, 500);
+		recv_loop(500);
 		skipped = 0;
 		retry_count = 0;
 		goto retry;
 	}
-	recv_loop(pfd, pfd_len, 200);
+	recv_loop(200);
 	TAILQ_FOREACH(iff, &interfaces, list_node)
 		/* if we did not receive a response, retry */
 		if (iff->req_sent && !iff->resp_recv && retry_count++ < 10) {
@@ -702,7 +709,7 @@ int main(int argc, char **argv)
 		 * need to listen for the RTM_NETLINK messages
 		 * about the new VLAN devices
 		 */
-		recv_loop(pfd, pfd_len, 500);
+		recv_loop(500);
 	}
 	if (config.start)
 		start_fcoe();
