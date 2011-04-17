@@ -2,7 +2,7 @@ Source: fcoe-utils
 Section: misc
 Priority: extra
 Maintainer: Debian FCoE Maintainers <pkg-fcoe-maintainers@lists.alioth.debian.org>
-Uploaders: Ritesh Raj Sarraf <rrs@debian.org>
+Uploaders: Ritesh Raj Sarraf <rrs@debian.org>, Liang Guo <bluestonechina@gmail.com>
 Build-Depends: debhelper (>= 7), autotools-dev, libhaapi-dev, dcbd, pkg-config
 Standards-Version: 3.8.3
 Homepage: http://www.open-fcoe.org
