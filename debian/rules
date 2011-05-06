@@ -7,4 +7,4 @@
 
 override_dh_auto_configure:
 	./bootstrap.sh
-	./configure --prefix=/usr
+	./configure --prefix=/usr --includedir=/usr/include
