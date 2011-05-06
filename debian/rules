@@ -7,4 +7,4 @@
 
 override_dh_auto_configure:
 	./bootstrap.sh
-	./configure
+	./configure --prefix=/usr
