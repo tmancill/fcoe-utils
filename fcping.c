@@ -49,10 +49,10 @@
 #include "fc_types.h"
 typedef uint8_t u8;
 #include <scsi/sg.h>
-#include <scsi/fc/fc_ns.h>
-#include <scsi/fc/fc_gs.h>
-#include <scsi/fc/fc_els.h>
-#include <scsi/scsi_bsg_fc.h>
+#include "fc_ns.h"
+#include "fc_gs.h"
+#include "fc_els.h"
+#include "scsi_bsg_fc.h"
 
 #include "fcoe_utils.h"
 
