@@ -3,8 +3,10 @@ Section: misc
 Priority: extra
 Maintainer: Debian FCoE Maintainers <pkg-fcoe-general@lists.alioth.debian.org>
 Uploaders: Ritesh Raj Sarraf <rrs@debian.org>, Liang Guo <bluestonechina@gmail.com>
-Build-Depends: debhelper (>= 7), autotools-dev, libhbaapi-dev, lldpad-dev, pkg-config, autoconf, automake, libnl-dev
-Standards-Version: 3.8.3
+Build-Depends: debhelper (>= 7.0.50~), autotools-dev, libhbaapi-dev, lldpad-dev, pkg-config, autoconf, automake, libnl-dev
+Standards-Version: 3.9.2
+Vcs-Git: git://git.debian.org/pkg-fcoe/fcoe-utils.git
+Vcs-Browser: http://git.debian.org/?p=pkg-fcoe/pkg-fcoe.git
 Homepage: http://www.open-fcoe.org
 
 Package: fcoe-utils
