@@ -7,7 +7,7 @@
 
 override_dh_auto_configure:
 	./bootstrap.sh
-	./configure --prefix=/usr --includedir=/usr/include
+	./configure --prefix=/usr
 
 override_dh_installchangelogs:
 	dh_installchangelogs debian/changelog
