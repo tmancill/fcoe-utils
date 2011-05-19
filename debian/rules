@@ -10,8 +10,9 @@ override_dh_auto_configure:
 	./configure --prefix=/usr --sysconfdir=/etc
 
 override_dh_auto_install:
-	[ -f etc/initd/fcoe ] || rm -f etc/initd/fcoe
+	[ ! -f etc/initd/fcoe ] || rm -f etc/initd/fcoe
 	dh_auto_install
+	dh_installinit -u 'start 45 S . stop 81 0 1 6 .' --no-start
 
 override_dh_installchangelogs:
 	dh_installchangelogs debian/changelog
