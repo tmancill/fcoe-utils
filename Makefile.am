@@ -52,18 +52,6 @@ dist_noinst_SCRIPTS = etc/initd/initd.suse etc/initd/initd.fedora \
 	contrib/fcc.sh contrib/fcoe-setup.sh contrib/fcoe_edd.sh \
 	debug/dcbcheck.sh debug/fcoedump.sh
 
-CLEANFILES = etc/initd/fcoe
-etc/initd/fcoe:
-	mkdir -p etc/initd
-	if [ -f /etc/fedora-release ] || [ -f /etc/redhat-release ]; then \
-		ln -s ${abs_srcdir}/etc/initd/initd.fedora $@; \
-	else \
-		ln -s ${abs_srcdir}/etc/initd/initd.suse $@; \
-	fi
-
-init_ddir = ${sysconfdir}/init.d
-init_d_SCRIPTS = etc/initd/fcoe
-
 dist_noinst_DATA = README COPYING INSTALL fcoe-utils.spec etc/config
 
 install-data-hook:
