@@ -9,5 +9,8 @@ override_dh_auto_configure:
 	./bootstrap.sh
 	./configure --prefix=/usr --sysconfdir=/etc
 
+override_dh_auto_install:
+	[ -f etc/initd/fcoe ] || rm -f etc/initd/fcoe
+
 override_dh_installchangelogs:
 	dh_installchangelogs debian/changelog
