@@ -20,7 +20,7 @@
 # Derived from the Upstream Script
 
 ### BEGIN INIT INFO
-# Provides: fcoe
+# Provides: fcoe-utils
 # Required-Start: $network $remote_fs
 # Required-Stop: $network $remote_fs sendsigs
 # Default-Start: S
