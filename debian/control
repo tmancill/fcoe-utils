@@ -15,4 +15,4 @@ Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Fibre Channel over Ethernet utilities
  This package allows users to use Fibre Channel over Ethernet. It contains:
  fcoeadm - command line tool for configuring FCoE interfaces 
- coemon - service to configure DCB Ethernet QOS filters, works with dcbd 
+ fcoemon - service to configure DCB Ethernet QOS filters, works with dcbd 
