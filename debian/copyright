@@ -11,6 +11,7 @@ Upstream Author(s):
 Copyright:
 
     Copyright(c) 2009 Intel Corporation.
+    Copyright(c) 2008-2010 Cisco Systems, Inc
 
 License:
 
@@ -29,6 +30,6 @@ this program; if not, write to the Free Software Foundation, Inc.,
 
 The Debian packaging is:
 
-    Copyright (C) 2010 Chuck Short <zulcss@ubuntu.com>
+    Copyright (C) 2011 Ritesh Raj Sarraf <rrs@debian.org>
 
-and is licensed under the GPL version 3,  see `/usr/share/common-licenses/GPL-3'.
+and is licensed under the GPL version 2,  see `/usr/share/common-licenses/GPL-2'.
