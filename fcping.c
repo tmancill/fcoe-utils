@@ -47,14 +47,13 @@
 #include <linux/bsg.h>
 #include "net_types.h"
 #include "fc_types.h"
+#include "fcoe_utils.h"
 typedef uint8_t u8;
 #include <scsi/sg.h>
 #include "fc_ns.h"
 #include "fc_gs.h"
 #include "fc_els.h"
 #include "scsi_bsg_fc.h"
-
-#include "fcoe_utils.h"
 
 static const char *cmdname;
 
@@ -71,7 +70,7 @@ static void
 fp_usage()
 {
 	fprintf(stderr,
-		"Usage: %s [-fqx] -i <interval> [ -c <count> ] -h <hba> "
+		"Usage: %s [-fqx] [ -i <interval> ] [ -c <count> ] -h <hba> "
 		"[ -s <size> ]\n"
 		"              [ -F <FC-ID> | -P <WWPN> | -N <WWNN>]\n"
 		"  flags:\n"
@@ -479,7 +478,19 @@ fp_find_hba(void)
 			SA_LOG_EXIT("invalid hba name %s", fp_hba);
 		fp_hba_type = FP_HBA_HOST_TYPE;
 	} else if (strstr(fp_hba, ":")) {
-		wwn = fp_parse_wwn(fp_hba, "HBA", 2, 0);
+		if (strlen(fp_hba) == strlen("xx:yy:aa:bb:cc:dd:ee:ff")) {
+			fc_wwn_t wwn1;
+
+			wwn1 = fp_parse_wwn(fp_hba, "HBA", 2, 0);
+			wwn1 &= 0xffff000000000000;
+			wwn = fp_parse_wwn(&fp_hba[6], "HBA", 2, 0);
+			wwn &= 0x0000ffffffffffff;
+			wwn |= wwn1;
+		} else if (strlen(fp_hba) == strlen("aa:bb:cc:dd:ee:ff")) {
+			wwn = fp_parse_wwn(fp_hba, "HBA", 2, 0);
+		} else {
+			SA_LOG_EXIT("invalid WWPN or MAC address %s", fp_hba);
+		}
 		hton64(wwpn.wwn, wwn);
 		fp_hba_type = FP_HBA_WWPN_TYPE;
 	} else {

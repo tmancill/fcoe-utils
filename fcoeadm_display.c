@@ -33,6 +33,7 @@
 #include <byteswap.h>
 #include <net/if.h>
 #include <unistd.h>
+#include <inttypes.h>
 
 #include "net_types.h"
 #include "fc_types.h"
@@ -52,9 +53,6 @@
 /* #define TEST_REPORT_LUNS */
 /* #define TEST_READ_CAP_V1 */
 /* #define TEST_DEV_SERIAL_NO */
-
-/* Maximum number of HBA the display routines support */
-#define MAX_HBA_COUNT      128
 
 /* Define FC4 Type */
 #define FC_TYPE_FCP        0x08 /* SCSI FCP */
@@ -84,6 +82,14 @@ struct hba_name_table {
 	int                   displayed;
 };
 
+/*
+ * List of HBA objects.
+ */
+struct hba_name_table_list {
+	int			hba_count;
+	struct hba_name_table	hba_table[1];
+};
+
 struct sa_nameval port_states[] = {
 	{ "Not Present",    HBA_PORTSTATE_UNKNOWN },
 	{ "Online",         HBA_PORTSTATE_ONLINE },
@@ -102,11 +108,11 @@ struct sa_nameval port_states[] = {
  * table of /sys port speed strings to HBA-API values.
  */
 struct sa_nameval port_speeds[] = {
-	{ "10 Gbit",        HBA_PORTSPEED_10GBIT },
-	{ "2 Gbit",         HBA_PORTSPEED_2GBIT },
-	{ "1 Gbit",         HBA_PORTSPEED_1GBIT },
-	{ "Not Negotiated", HBA_PORTSPEED_NOT_NEGOTIATED },
 	{ "Unknown",        HBA_PORTSPEED_UNKNOWN },
+	{ "1 Gbit",         HBA_PORTSPEED_1GBIT },
+	{ "2 Gbit",         HBA_PORTSPEED_2GBIT },
+	{ "10 Gbit",        HBA_PORTSPEED_10GBIT },
+	{ "Not Negotiated", HBA_PORTSPEED_NOT_NEGOTIATED },
 	{ NULL, 0 }
 };
 
@@ -129,6 +135,38 @@ sa_enum_decode(char *buf, size_t len,
 			break;
 		}
 	}
+	return buf;
+}
+
+/** sa_enum_decode_speed(buf, len, val)
+ *
+ * @param buf buffer for result (may be used or not).
+ * @param len size of buffer (at least 32 bytes recommended).
+ * @param val value to be decoded into a name.
+ * @returns pointer to name string.  Unknown values are put into buffer in hex.
+ * Uses the port_speeds table to decode speed from value
+ */
+static const char *
+sa_enum_decode_speed(char *buf, size_t buflen,
+		     u_int32_t val)
+{
+	char *prefix = "";
+	ssize_t len = 0;
+	struct sa_nameval *tp = port_speeds;
+	char *cp = buf;
+
+	snprintf(buf, buflen, "Unknown");
+	for (; tp->nv_name != NULL; tp++) {
+		if (tp->nv_val & val) {
+			len = snprintf(cp, buflen, "%s%s", prefix, tp->nv_name);
+			if (len <= 0 || len >= buflen)
+				break;
+			cp += len;
+			buflen -= len;
+			prefix = ", ";
+		}
+	}
+
 	return buf;
 }
 
@@ -285,10 +323,12 @@ static void show_port_info(HBA_ADAPTERATTRIBUTES *hba_info,
 	show_wwn(lp_info->FabricName.wwn);
 	printf("\n");
 
-	sa_enum_decode(buf, len, port_speeds, lp_info->PortSpeed);
+	memset(buf, '\0', len);
+	sa_enum_decode_speed(buf, len, lp_info->PortSpeed);
 	printf("        Speed:             %s\n", buf);
 
-	sa_enum_decode(buf, len, port_speeds, lp_info->PortSupportedSpeed);
+	memset(buf, '\0', len);
+	sa_enum_decode_speed(buf, len, lp_info->PortSupportedSpeed);
 	printf("        Supported Speed:   %s\n", buf);
 
 	printf("        MaxFrameSize:      %d\n",
@@ -676,7 +716,8 @@ show_short_lun_info_header(void)
 
 static void
 show_short_lun_info(HBA_FCP_SCSI_ENTRY *ep, char *inqbuf,
-		    struct scsi_rcap10_resp *rcap_resp)
+		    u_int32_t blksize,
+		    u_int64_t lba)
 {
 	struct scsi_inquiry_std *inq = (struct scsi_inquiry_std *)inqbuf;
 	char vendor[10];
@@ -693,8 +734,8 @@ show_short_lun_info(HBA_FCP_SCSI_ENTRY *ep, char *inqbuf,
 	memset(rev, 0, sizeof(rev));
 
 	/* Get device capacity */
-	cap = (u_int64_t) net32_get(&rcap_resp->rc_block_len) *
-		net32_get(&rcap_resp->rc_lba);
+	cap = (u_int64_t)blksize * lba;
+
 	cap_abbr = cap / (1024.0 * 1024.0);
 	abbr = "MB";
 	if (cap_abbr >= 1024) {
@@ -722,7 +763,7 @@ show_short_lun_info(HBA_FCP_SCSI_ENTRY *ep, char *inqbuf,
 	/* Show the LUN info */
 	printf("%10d  %-11s  %10s  %7d     %s %s (rev %s)\n",
 	       ep->ScsiId.ScsiOSLun, ep->ScsiId.OSDeviceName,
-	       capstr, net32_get(&rcap_resp->rc_block_len),
+	       capstr, blksize,
 	       vendor, model, rev);
 }
 
@@ -733,7 +774,8 @@ show_full_lun_info(HBA_HANDLE hba_handle,
 		   HBA_PORTATTRIBUTES *rp_info,
 		   HBA_FCP_SCSI_ENTRY *ep,
 		   char *inqbuf,
-		   struct scsi_rcap10_resp *rcap_resp)
+		   u_int32_t blksize,
+		   u_int64_t lba)
 {
 	struct scsi_inquiry_std *inq = (struct scsi_inquiry_std *)inqbuf;
 	char vendor[10];
@@ -764,8 +806,8 @@ show_full_lun_info(HBA_HANDLE hba_handle,
 			sizeof(inq->is_rev_level));
 
 	/* Get device capacity */
-	cap = (u_int64_t) net32_get(&rcap_resp->rc_block_len) *
-		net32_get(&rcap_resp->rc_lba);
+	cap = (u_int64_t)blksize * lba;
+
 	cap_abbr = cap / (1024.0 * 1024.0);
 	abbr = "MB";
 	if (cap_abbr >= 1024) {
@@ -804,10 +846,8 @@ show_full_lun_info(HBA_HANDLE hba_handle,
 	       ep->ScsiId.ScsiOSLun);
 
 	printf("        Capacity:           %s\n", capstr);
-	printf("        Capacity in Blocks: %d\n",
-	       net32_get(&rcap_resp->rc_lba));
-	printf("        Block Size:         %d bytes\n",
-	       net32_get(&rcap_resp->rc_block_len));
+	printf("        Capacity in Blocks: %" PRIu64 "\n", lba);
+	printf("        Block Size:         %" PRIu32 " bytes\n", blksize);
 	pqual = inq->is_periph & SCSI_INQ_PQUAL_MASK;
 	if (pqual == SCSI_PQUAL_ATT)
 		printf("        Status:             Attached\n");
@@ -930,6 +970,9 @@ scan_device_map(HBA_HANDLE hba_handle,
 	char *dev;
 	char inqbuf[256];
 	struct scsi_rcap10_resp rcap_resp;
+	struct scsi_rcap16_resp rcap16_resp;
+	u_int64_t lba;
+	u_int32_t blksize;
 	int lun_count = 0;
 	int print_header = 0;
 
@@ -972,17 +1015,42 @@ scan_device_map(HBA_HANDLE hba_handle,
 #endif
 		if (status != HBA_STATUS_OK)
 			continue;
+
+		if (net32_get(&rcap_resp.rc_lba) == 0xFFFFFFFFUL) {
+			/* Issue read capacity (16) */
+#ifdef TEST_HBAAPI_V1
+			status = get_device_capacity_v1(hba_handle, ep,
+							(char *)&rcap16_resp,
+							sizeof(rcap16_resp));
+#else
+			status = get_device_capacity_v2(hba_handle, lp_info,
+							ep, (char *)&rcap16_resp,
+							sizeof(rcap16_resp));
+#endif
+			if (status != HBA_STATUS_OK)
+				continue;
+
+			blksize = net32_get(&rcap16_resp.rc_block_len);
+			lba = (u_int64_t)net64_get(&rcap16_resp.rc_lba);
+		} else {
+			blksize = net32_get(&rcap_resp.rc_block_len);
+			lba = (u_int64_t)net32_get(&rcap_resp.rc_lba);
+		}
+
+		/* Total Number of Blocks */
+		lba = lba + 1;
+
 		switch (style) {
 		case DISP_TARG:
 			if (!print_header) {
 				show_short_lun_info_header();
 				print_header = 1;
 			}
-			show_short_lun_info(ep, inqbuf, &rcap_resp);
+			show_short_lun_info(ep, inqbuf, blksize, lba);
 			break;
 		case DISP_LUN:
 			show_full_lun_info(hba_handle, hba_info, lp_info,
-					   rp_info, ep, inqbuf, &rcap_resp);
+					   rp_info, ep, inqbuf, blksize, lba);
 			break;
 		}
 
@@ -1040,17 +1108,18 @@ show_port_stats_in_row(HBA_INT64 start_time,
 	printf("\n");
 }
 
-static void hba_table_destroy(struct hba_name_table *hba_table)
+static void hba_table_list_destroy(struct hba_name_table_list *hba_table_list)
 {
 	int i;
 
-	/*
-	 * This is inefficiant as is closes adapter handles
-	 * (presumedly 0) that weren't open. However, it allows
-	 * us to avoid maintaining a count.
-	 */
-	for (i = 0 ; i < MAX_HBA_COUNT ; i++)
-		HBA_CloseAdapter(hba_table[i].hba_handle);
+	if (!hba_table_list)
+		return;
+
+	for (i = 0 ; i < hba_table_list->hba_count ; i++)
+		HBA_CloseAdapter(hba_table_list->hba_table[i].hba_handle);
+
+	free(hba_table_list);
+	hba_table_list = NULL;
 }
 
 static enum fcoe_status fcoeadm_loadhba()
@@ -1064,25 +1133,32 @@ static enum fcoe_status fcoeadm_loadhba()
 /*
  * This routine leaves all adapters fd's open.
  */
-static int hba_table_init(struct hba_name_table *hba_table)
+static int hba_table_list_init(struct hba_name_table_list **hba_table_list)
 {
 	HBA_STATUS retval;
 	char namebuf[1024];
 	int i, num_hbas = 0;
-
-	/*
-	 * Initialize the table.
-	 */
-	for (i = 0 ; i < MAX_HBA_COUNT ; i++) {
-		memset(&hba_table[i], 0,
-		       sizeof(struct hba_name_table));
-	}
+	struct hba_name_table_list *hba_table_list_temp = NULL;
+	struct hba_name_table *hba_table = NULL;
+	int size = 0;
 
 	num_hbas = HBA_GetNumberOfAdapters();
 	if (!num_hbas) {
 		fprintf(stderr, "No FCoE interfaces created.\n");
 		return num_hbas;
 	}
+
+	size = sizeof(struct hba_name_table_list) + \
+			(num_hbas - 1)*sizeof(struct hba_name_table);
+
+	hba_table_list_temp = (struct hba_name_table_list *)calloc(1, size);
+	if (!hba_table_list_temp) {
+		fprintf(stderr,
+			"Failure allocating memory.\n");
+		return -1;
+	}
+
+	hba_table_list_temp->hba_count = num_hbas;
 
 	/*
 	 * Fill out the HBA table.
@@ -1095,19 +1171,20 @@ static int hba_table_init(struct hba_name_table *hba_table)
 			continue;
 		}
 
-		hba_table[i].hba_handle = HBA_OpenAdapter(namebuf);
-		if (!hba_table[i].hba_handle) {
-			hba_table[i].failed = 1;
+		hba_table = &hba_table_list_temp->hba_table[i];
+		hba_table->hba_handle = HBA_OpenAdapter(namebuf);
+		if (!hba_table->hba_handle) {
+			hba_table->failed = 1;
 			fprintf(stderr, "HBA_OpenAdapter failed\n");
 			perror("HBA_OpenAdapter");
 			continue;
 		}
 
-		retval = HBA_GetAdapterAttributes(hba_table[i].hba_handle,
-						  &hba_table[i].hba_attrs);
+		retval = HBA_GetAdapterAttributes(hba_table->hba_handle,
+						  &hba_table->hba_attrs);
 		if (retval != HBA_STATUS_OK) {
-			HBA_CloseAdapter(hba_table[i].hba_handle);
-			hba_table[i].failed = 1;
+			HBA_CloseAdapter(hba_table->hba_handle);
+			hba_table->failed = 1;
 			fprintf(stderr,
 				"HBA_GetAdapterAttributes failed, retval=%d\n",
 				retval);
@@ -1115,12 +1192,12 @@ static int hba_table_init(struct hba_name_table *hba_table)
 			continue;
 		}
 
-		retval = HBA_GetAdapterPortAttributes(hba_table[i].hba_handle,
+		retval = HBA_GetAdapterPortAttributes(hba_table->hba_handle,
 						      0,
-						      &hba_table[i].port_attrs);
+						      &hba_table->port_attrs);
 		if (retval != HBA_STATUS_OK) {
-			HBA_CloseAdapter(hba_table[i].hba_handle);
-			hba_table[i].failed = 1;
+			HBA_CloseAdapter(hba_table->hba_handle);
+			hba_table->failed = 1;
 			fprintf(stderr,
 				"HBA_GetAdapterPortAttributes failed, "
 				"retval=%d\n", retval);
@@ -1128,20 +1205,26 @@ static int hba_table_init(struct hba_name_table *hba_table)
 		}
 	}
 
+	*hba_table_list = hba_table_list_temp;
+
 	return num_hbas;
 }
 
 /*
  * This routine expects a valid interface name.
  */
-static int get_index_for_ifname(struct hba_name_table *hba_table,
-				int num_hbas, const char *ifname)
+static int get_index_for_ifname(struct hba_name_table_list *hba_table_list,
+				const char *ifname)
 {
+	HBA_PORTATTRIBUTES *port_attrs;
 	int i;
 
-	for (i = 0 ; i < num_hbas ; i++) {
+	for (i = 0 ; i < hba_table_list->hba_count ; i++) {
+
+		port_attrs = &hba_table_list->hba_table[i].port_attrs;
+
 		if (!check_symbolic_name_for_interface(
-			    hba_table[i].port_attrs.PortSymbolicName,
+			    port_attrs->PortSymbolicName,
 			    ifname))
 			return i;
 	}
@@ -1157,28 +1240,35 @@ enum fcoe_status display_port_stats(const char *ifname, int interval)
 	HBA_PORTSTATISTICS port_stats;
 	HBA_FC4STATISTICS port_fc4stats;
 	HBA_INT64 start_time = 0;
-	struct hba_name_table hba_table[MAX_HBA_COUNT];
+	struct hba_name_table_list *hba_table_list = NULL;
 	enum fcoe_status rc = SUCCESS;
 	int i, num_hbas;
 
 	if (fcoeadm_loadhba())
 		return EHBAAPIERR;
 
-	num_hbas = hba_table_init(hba_table);
+	num_hbas = hba_table_list_init(&hba_table_list);
+	if (!num_hbas)
+		goto out;
 
-	i = get_index_for_ifname(hba_table, num_hbas, ifname);
+	if (num_hbas < 0) {
+		rc = EINTERR;
+		goto out;
+	}
+
+	i = get_index_for_ifname(hba_table_list, ifname);
 
 	/*
 	 * Return error code if a valid index wasn't returned.
 	 */
 	if (i < 0) {
-		hba_table_destroy(hba_table);
+		hba_table_list_destroy(hba_table_list);
 		HBA_FreeLibrary();
 		return EHBAAPIERR;
 	}
 
-	hba_handle = hba_table[i].hba_handle;
-	port_attrs = &hba_table[i].port_attrs;
+	hba_handle = hba_table_list->hba_table[i].hba_handle;
+	port_attrs = &hba_table_list->hba_table[i].port_attrs;
 
 	i = 0;
 	while (1) {
@@ -1231,21 +1321,34 @@ enum fcoe_status display_port_stats(const char *ifname, int interval)
 		} while (secs_left);
 	}
 
-	hba_table_destroy(hba_table);
+	hba_table_list_destroy(hba_table_list);
+out:
 	HBA_FreeLibrary();
 	return rc;
 }
 
 enum fcoe_status display_adapter_info(const char *ifname)
 {
-	struct hba_name_table hba_table[MAX_HBA_COUNT];
+	struct hba_name_table_list *hba_table_list = NULL;
 	enum fcoe_status rc = SUCCESS;
 	int i, j, num_hbas = 0;
+	HBA_HANDLE hba_handle;
+	HBA_PORTATTRIBUTES *port_attrs;
+	HBA_PORTATTRIBUTES *sport_attrs;
+	HBA_ADAPTERATTRIBUTES *hba_attrs;
+	HBA_ADAPTERATTRIBUTES *shba_attrs;
 
 	if (fcoeadm_loadhba())
 		return EHBAAPIERR;
 
-	num_hbas = hba_table_init(hba_table);
+	num_hbas = hba_table_list_init(&hba_table_list);
+	if (!num_hbas)
+		goto out;
+
+	if (num_hbas < 0) {
+		rc = EINTERR;
+		goto out;
+	}
 
 	/*
 	 * Loop through each HBA entry and for each serial number
@@ -1253,52 +1356,59 @@ enum fcoe_status display_adapter_info(const char *ifname)
 	 * on that adapter.
 	 */
 	for (i = 0 ; i < num_hbas ; i++) {
-		if (hba_table[i].failed ||
-		    hba_table[i].displayed)
+		if (hba_table_list->hba_table[i].failed ||
+		    hba_table_list->hba_table[i].displayed)
 			continue;
 
+		hba_handle = hba_table_list->hba_table[i].hba_handle;
+		port_attrs = &hba_table_list->hba_table[i].port_attrs;
+		hba_attrs = &hba_table_list->hba_table[i].hba_attrs;
+
 		if (ifname && check_symbolic_name_for_interface(
-			    hba_table[i].port_attrs.PortSymbolicName,
+			    port_attrs->PortSymbolicName,
 			    ifname)) {
 			/*
 			 * Overloading 'displayed' to indicate
 			 * that the HBA/Port should be skipped.
 			 */
-			hba_table[i].displayed = 1;
+			hba_table_list->hba_table[i].displayed = 1;
 			continue;
 		}
 
 		/*
 		 * Display the adapter header.
 		 */
-		show_hba_info(&hba_table[i].hba_attrs);
+		show_hba_info(hba_attrs);
 
 		/*
 		 * Loop through HBAs again to print sub-ports.
 		 */
 		for (j = 0; j < num_hbas ; j++) {
+			sport_attrs = &hba_table_list->hba_table[j].port_attrs;
+			shba_attrs = &hba_table_list->hba_table[j].hba_attrs;
 			if (ifname && check_symbolic_name_for_interface(
-				    hba_table[j].port_attrs.PortSymbolicName,
+				    sport_attrs->PortSymbolicName,
 				    ifname)) {
 				/*
 				 * Overloading 'displayed' to indicate
 				 * that the HBA/Port should be skipped.
 				 */
-				hba_table[i].displayed = 1;
+				hba_table_list->hba_table[i].displayed = 1;
 				continue;
 			}
 
-			if (!strncmp(hba_table[i].hba_attrs.SerialNumber,
-				     hba_table[j].hba_attrs.SerialNumber,
-				     strlen(hba_table[i].hba_attrs.SerialNumber))) {
-				show_port_info(&hba_table[j].hba_attrs,
-					       &hba_table[j].port_attrs);
-				hba_table[j].displayed = 1;
+			if (!strncmp(hba_attrs->SerialNumber,
+				     shba_attrs->SerialNumber,
+				     strlen(hba_attrs->SerialNumber))) {
+				show_port_info(shba_attrs,
+					       sport_attrs);
+				hba_table_list->hba_table[j].displayed = 1;
 			}
 		}
 	}
 
-	hba_table_destroy(hba_table);
+	hba_table_list_destroy(hba_table_list);
+out:
 	HBA_FreeLibrary();
 
 	return rc;
@@ -1309,14 +1419,24 @@ enum fcoe_status display_target_info(const char *ifname,
 {
 	HBA_STATUS retval;
 	HBA_PORTATTRIBUTES rport_attrs;
-	struct hba_name_table hba_table[MAX_HBA_COUNT];
+	struct hba_name_table_list *hba_table_list = NULL;
 	int i, target_index, num_hbas = 0;
 	enum fcoe_status rc = SUCCESS;
+	HBA_HANDLE hba_handle;
+	HBA_PORTATTRIBUTES *port_attrs;
+	HBA_ADAPTERATTRIBUTES *hba_attrs;
 
 	if (fcoeadm_loadhba())
 		return EHBAAPIERR;
 
-	num_hbas = hba_table_init(hba_table);
+	num_hbas = hba_table_list_init(&hba_table_list);
+	if (!num_hbas)
+		goto out;
+
+	if (num_hbas < 0) {
+		rc = EINTERR;
+		goto out;
+	}
 
 	/*
 	 * Loop through each HBA entry and for each serial number
@@ -1324,28 +1444,32 @@ enum fcoe_status display_target_info(const char *ifname,
 	 * on that adapter.
 	 */
 	for (i = 0 ; i < num_hbas ; i++) {
-		if (hba_table[i].failed ||
-		    hba_table[i].displayed)
+		if (hba_table_list->hba_table[i].failed ||
+		    hba_table_list->hba_table[i].displayed)
 			continue;
 
+		hba_handle = hba_table_list->hba_table[i].hba_handle;
+		port_attrs = &hba_table_list->hba_table[i].port_attrs;
+		hba_attrs = &hba_table_list->hba_table[i].hba_attrs;
+
 		if (ifname && check_symbolic_name_for_interface(
-			    hba_table[i].port_attrs.PortSymbolicName,
+			    port_attrs->PortSymbolicName,
 			    ifname)) {
 			/*
 			 * Overloading 'displayed' to indicate
 			 * that the HBA/Port should be skipped.
 			 */
-			hba_table[i].displayed = 1;
+			hba_table_list->hba_table[i].displayed = 1;
 			continue;
 		}
 
 		for (target_index = 0;
-		     target_index < hba_table[i].port_attrs.NumberofDiscoveredPorts;
+		     target_index < port_attrs->NumberofDiscoveredPorts;
 		     target_index++) {
 
 			/* TODO: Second arg might be incorrect */
 			retval = HBA_GetDiscoveredPortAttributes(
-				hba_table[i].hba_handle,
+				hba_handle,
 				0, target_index,
 				&rport_attrs);
 
@@ -1354,7 +1478,7 @@ enum fcoe_status display_target_info(const char *ifname,
 					"HBA_GetDiscoveredPortAttributes "
 					"failed for target_index=%d, "
 					"status=%d\n", target_index, retval);
-				hba_table[i].failed = 1;
+				hba_table_list->hba_table[i].failed = 1;
 				continue;
 			}
 
@@ -1365,26 +1489,26 @@ enum fcoe_status display_target_info(const char *ifname,
 				continue;
 
 			show_target_info(
-				hba_table[i].port_attrs.PortSymbolicName,
-				&hba_table[i].hba_attrs,
+				port_attrs->PortSymbolicName,
+				hba_attrs,
 				&rport_attrs);
 
-			if (hba_table[i].port_attrs.PortState !=
-			    HBA_PORTSTATE_ONLINE)
+			if (port_attrs->PortState != HBA_PORTSTATE_ONLINE)
 				continue;
 
 			/*
 			 * This will print the LUN table
 			 * under the target.
 			 */
-			scan_device_map(hba_table[i].hba_handle,
-					&hba_table[i].hba_attrs,
-					&hba_table[i].port_attrs,
+			scan_device_map(hba_handle,
+					hba_attrs,
+					port_attrs,
 					&rport_attrs, ifname, style);
 		}
 	}
 
-	hba_table_destroy(hba_table);
+	hba_table_list_destroy(hba_table_list);
+out:
 	HBA_FreeLibrary();
 
 	return rc;

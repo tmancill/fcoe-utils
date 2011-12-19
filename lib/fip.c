@@ -48,8 +48,6 @@
 #define FIP_LOG_ERRNO(...)		sa_log_err(errno, __func__, __VA_ARGS__)
 #define FIP_LOG_DBG(...)		sa_log_debug(__VA_ARGS__)
 
-#define ARRAY_SIZE(a)	(sizeof(a) / sizeof((a)[0]))
-
 static int fip_mac_is_valid(unsigned char *mac)
 {
 	if (0x01 & mac[0])
@@ -136,6 +134,28 @@ static void fip_ethhdr(int ifindex, unsigned char *mac, struct ethhdr *eh)
 }
 
 /**
+ * drain_socket - Discard receive packets on a socket
+ */
+static void drain_socket(int s)
+{
+	char buf[4096];
+	struct sockaddr_ll sa;
+	struct iovec iov[] = {
+		{ .iov_base = buf, .iov_len = sizeof(buf), },
+	};
+	struct msghdr msg = {
+		.msg_name = &sa,
+		.msg_namelen = sizeof(sa),
+		.msg_iov = iov,
+		.msg_iovlen = ARRAY_SIZE(iov),
+	};
+
+	while (recvmsg(s, &msg, MSG_DONTWAIT) > 0) {
+		/* Drop the packet */
+	}
+}
+
+/**
  * fip_socket - create and bind a packet socket for FIP
  */
 int fip_socket(int ifindex)
@@ -159,6 +179,13 @@ int fip_socket(int ifindex)
 		close(s);
 		return rc;
 	}
+
+	/*
+	 * Drain the packets that were received between socket and bind. We
+	 * could've received packets not meant for our interface. This can
+	 * interfere with vlan discovery
+	 */
+	drain_socket(s);
 
 	return s;
 }
@@ -244,6 +271,7 @@ int fip_recv(int s, fip_handler *fn, void *arg)
 	};
 	struct fiphdr *fh;
 	ssize_t len, desc_len;
+	struct ethhdr *eth = (struct ethhdr *)buf;
 
 	len = recvmsg(s, &msg, MSG_DONTWAIT);
 	if (len < 0) {
@@ -256,7 +284,10 @@ int fip_recv(int s, fip_handler *fn, void *arg)
 		return -1;
 	}
 
-	fh = (struct fiphdr *) (buf + sizeof(struct ethhdr));
+	if (eth->h_proto == htons(ETH_P_8021Q))
+		fh = (struct fiphdr *) (buf + sizeof(struct ethhdr) + VLAN_HLEN);
+	else
+		fh = (struct fiphdr *) (buf + sizeof(struct ethhdr));
 
 	desc_len = ntohs(fh->fip_desc_len);
 	if (len < (sizeof(*fh) + (desc_len << 2))) {
