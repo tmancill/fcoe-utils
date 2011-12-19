@@ -1,3 +1,10 @@
+fcoe-utils (1.0.21-1) unstable; urgency=low
+
+  * New upstream release
+    - Upload to unstable 
+
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Mon, 19 Dec 2011 23:14:41 +0530
+
 fcoe-utils (1.0.18-1) experimental; urgency=low
 
   * Initial Release (Closes: #572454)
