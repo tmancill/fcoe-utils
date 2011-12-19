@@ -43,10 +43,10 @@ receive DCB configuration change events.
 
 During runtime, *fcoemon* will monitor network and *lldpad* events for the
 relevant Ethernet interfaces and perform appropriate actions (create,
-destroy, enable, disable) on the FCoE instances. *fcoemon* also privides a
+destroy, enable, disable) on the FCoE instances. *fcoemon* also provides a
 client interface via which the *fcoeadm* utility is able to issue commands.
 
-Instalation of the _fcoe-utils_ package will set up an _fcoe_ service which
+Installation of the _fcoe-utils_ package will set up an _fcoe_ service which
 will control the execution of the *fcoemon* daemon.
 
 OPTIONS
@@ -118,9 +118,7 @@ FCoE instance:
 * The App:FCoE and PFC features are operational AND the priority indicated
   by App:FCoE is not enabled for PFC.
 
-Otherwise, the FCoE instance will remain enabled, but certain DCB
-configurations that may be problematic will generate warning messages in
-the log.
+Otherwise, the FCoE instance will always remain enabled.
 
 CONFIGURATION
 -------------
@@ -167,8 +165,9 @@ of the *fcoe* service.
 ~~~~~~~~~~~~~~~~~~~~~~
 These files are read by *fcoemon* on initialization. They are used to
 indicate which Ethernet or VLAN interfaces should have FCoE instances
-created. The default options in this file are: *FCOE_ENABLE="yes"*,
-*DCB_REQUIRED="yes"*, and *AUTO_VLAN="yes"*.
+created. The option values in this file normally are: *FCOE_ENABLE="yes"*,
+*DCB_REQUIRED="yes"*, and *AUTO_VLAN="yes"*, though if the variable
+values are omitted, they default to "no".
 
 _FCOE_ENABLE_::
 	is used to enable/disable creation of the FCoE instance.  If

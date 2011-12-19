@@ -48,8 +48,6 @@
 #define FIP_LOG_ERRNO(...)		sa_log_err(errno, __func__, __VA_ARGS__)
 #define FIP_LOG_DBG(...)		sa_log_debug(__VA_ARGS__)
 
-#define ARRAY_SIZE(a)	(sizeof(a) / sizeof((a)[0]))
-
 static int fip_mac_is_valid(unsigned char *mac)
 {
 	if (0x01 & mac[0])
@@ -273,6 +271,7 @@ int fip_recv(int s, fip_handler *fn, void *arg)
 	};
 	struct fiphdr *fh;
 	ssize_t len, desc_len;
+	struct ethhdr *eth = (struct ethhdr *)buf;
 
 	len = recvmsg(s, &msg, MSG_DONTWAIT);
 	if (len < 0) {
@@ -285,7 +284,10 @@ int fip_recv(int s, fip_handler *fn, void *arg)
 		return -1;
 	}
 
-	fh = (struct fiphdr *) (buf + sizeof(struct ethhdr));
+	if (eth->h_proto == htons(ETH_P_8021Q))
+		fh = (struct fiphdr *) (buf + sizeof(struct ethhdr) + VLAN_HLEN);
+	else
+		fh = (struct fiphdr *) (buf + sizeof(struct ethhdr));
 
 	desc_len = ntohs(fh->fip_desc_len);
 	if (len < (sizeof(*fh) + (desc_len << 2))) {
