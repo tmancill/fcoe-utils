@@ -50,8 +50,6 @@
 #include "fcoe_utils.h"
 #include "rtnetlink.h"
 
-#define ARRAY_SIZE(a)	(sizeof(a) / sizeof((a)[0]))
-
 #define FIP_LOG(...)		sa_log(__VA_ARGS__)
 #define FIP_LOG_ERR(error, ...)	sa_log_err(error, __func__, __VA_ARGS__)
 #define FIP_LOG_ERRNO(...)	sa_log_err(errno, __func__, __VA_ARGS__)
@@ -143,6 +141,17 @@ struct fcf {
 };
 
 struct fcf_list_head fcfs = TAILQ_HEAD_INITIALIZER(fcfs);
+
+struct fcf *lookup_fcf(int ifindex, uint16_t vlan, unsigned char *mac)
+{
+	struct fcf *fcf;
+
+	TAILQ_FOREACH(fcf, &fcfs, list_node)
+		if ((ifindex == fcf->ifindex) && (vlan == fcf->vlan) &&
+		    (memcmp(mac, fcf->mac_addr, ETHER_ADDR_LEN) == 0))
+			return fcf;
+	return NULL;
+}
 
 struct iff *lookup_iff(int ifindex, char *ifname)
 {
@@ -241,6 +250,7 @@ int fip_recv_vlan_note(struct fiphdr *fh, int ifindex)
 	struct fip_tlv_ptrs tlvs;
 	struct fcf *fcf;
 	struct iff *iff;
+	uint16_t vlan;
 	unsigned int bitmap, required_tlvs;
 	int len;
 	int i;
@@ -260,6 +270,10 @@ int fip_recv_vlan_note(struct fiphdr *fh, int ifindex)
 		iff->resp_recv = true;
 
 	for (i = 0; i < tlvs.vlanc; i++) {
+		vlan = ntohs(tlvs.vlan[i]->vlan);
+		if (lookup_fcf(ifindex, vlan, tlvs.mac->mac_addr))
+			continue;
+
 		fcf = malloc(sizeof(*fcf));
 		if (!fcf) {
 			FIP_LOG_ERRNO("malloc failed");
@@ -267,7 +281,7 @@ int fip_recv_vlan_note(struct fiphdr *fh, int ifindex)
 		}
 		memset(fcf, 0, sizeof(*fcf));
 		fcf->ifindex = ifindex;
-		fcf->vlan = ntohs(tlvs.vlan[i]->vlan);
+		fcf->vlan = vlan;
 		memcpy(fcf->mac_addr, tlvs.mac->mac_addr, ETHER_ADDR_LEN);
 		TAILQ_INSERT_TAIL(&fcfs, fcf, list_node);
 	}
@@ -310,6 +324,7 @@ void rtnl_recv_newlink(struct nlmsghdr *nh)
 	struct rtattr *vlan[__IFLA_VLAN_MAX];
 	struct iff *iff, *real_dev;
 	int origdev = 1;
+	bool running;
 
 	FIP_LOG_DBG("RTM_NEWLINK: ifindex %d, type %d",
 		    ifm->ifi_index, ifm->ifi_type);
@@ -318,10 +333,15 @@ void rtnl_recv_newlink(struct nlmsghdr *nh)
 	if (ifm->ifi_type != ARPHRD_ETHER)
 		return;
 
+	/* not on bond master, but rather allow FIP on the slaves below */
+	if (ifm->ifi_flags & IFF_MASTER)
+		return;
+
+	running = !!(ifm->ifi_flags & (IFF_RUNNING | IFF_SLAVE));
 	iff = lookup_iff(ifm->ifi_index, NULL);
 	if (iff) {
 		/* already tracking, update operstate and return */
-		iff->running = (ifm->ifi_flags & IFF_RUNNING) == IFF_RUNNING;
+		iff->running = running;
 		if (iff->running)
 			pfd_add(iff->ps);
 		else
@@ -340,7 +360,7 @@ void rtnl_recv_newlink(struct nlmsghdr *nh)
 	parse_ifinfo(ifla, nh);
 
 	iff->ifindex = ifm->ifi_index;
-	iff->running = (ifm->ifi_flags & IFF_RUNNING) == IFF_RUNNING;
+	iff->running = running;
 	if (ifla[IFLA_LINK])
 		iff->iflink = *(int *)RTA_DATA(ifla[IFLA_LINK]);
 	else
@@ -398,8 +418,8 @@ static void help(int status)
 		"Usage: %s [ options ] [ network interfaces ]\n"
 		"Options:\n"
 		"  -a, --auto           Auto select Ethernet interfaces\n"
-		"  -c, --create		Create system VLAN devices\n"
-		"  -s, --start		Start FCoE login automatically\n"
+		"  -c, --create         Create system VLAN devices\n"
+		"  -s, --start          Start FCoE login automatically\n"
 		"  -h, --help           Display this help and exit\n"
 		"  -v, --version        Display version information and exit\n",
 		exe);
@@ -594,6 +614,9 @@ int send_vlan_requests(void)
 				iff->req_sent = false;
 				continue;
 			}
+			if (iff->req_sent)
+				continue;
+
 			fip_send_vlan_request(iff->ps,
 					      iff->ifindex,
 					      iff->mac_addr);

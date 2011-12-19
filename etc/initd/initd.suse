@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Copyright(c) 2010 Intel Corporation. All rights reserved.
+# Copyright(c) 2010-2011 Intel Corporation. All rights reserved.
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms and conditions of the GNU General Public License,
@@ -44,7 +44,6 @@ PID_FILE="/var/run/fcoemon.pid"
 LOG_FILE="/var/log/fcoemon.log"
 FCOEMON=/usr/sbin/fcoemon
 FCOEADM=/usr/sbin/fcoeadm
-DCBD=dcbd
 FCOEMON_OPTS=
 
 . /etc/rc.status
@@ -82,7 +81,7 @@ test -x $FCOEMON || {
 
 startup_fcoe_modules()
 {
-	modprobe fcoe > /dev/null 2>&1
+	modprobe -a $SUPPORTED_DRIVERS > /dev/null 2>&1
 }
 
 start()
@@ -112,8 +111,7 @@ stop()
 
 	echo -n $"Stopping FCoE initiator service: "
 
-	rm -f /var/run/fcoemon.*
-	rm -f /tmp/fcoemon.dcbd.*
+	rm -f ${PID_FILE}
 
 	rc_status -v
 }
@@ -123,6 +121,10 @@ status()
 	echo -n "Checking status for fcoe service "
 	checkproc -p ${PID_FILE} ${FCOEMON}
 	rc_status -v
+	if [ $? -ne 0 ]; then
+		return;
+	fi
+
 	interfaces=`$FCOEADM -i 2>&1 | \
 		    awk '/Symbolic Name:/{print $6}' | \
 		    sort | awk '{printf("%s ", $1)}'`

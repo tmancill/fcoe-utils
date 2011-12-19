@@ -39,6 +39,7 @@ static struct option fcoeadm_opts[] = {
 	{"destroy", required_argument, 0, 'd'},
 	{"reset", required_argument, 0, 'r'},
 	{"interface", no_argument, 0, 'i'},
+	{"Scan", required_argument, 0, 'S'},
 	{"target", no_argument, 0, 't'},
 	{"lun", no_argument, 0, 'l'},
 	{"stats", no_argument, 0, 's'},
@@ -77,25 +78,20 @@ static enum fcoe_status fcoeadm_clif_request(struct clif_sock_info *clif_info,
 	if (send(clif_info->socket_fd, cmd, cmd_len, 0) < 0)
 		return ENOMONCONN;
 
-	for (;;) {
-		tv.tv_sec = CLIF_CMD_RESPONSE_TIMEOUT;
-		tv.tv_usec = 0;
-		FD_ZERO(&rfds);
-		FD_SET(clif_info->socket_fd, &rfds);
-		ret = select(clif_info->socket_fd + 1, &rfds, NULL, NULL, &tv);
-		if (FD_ISSET(clif_info->socket_fd, &rfds)) {
-			ret = recv(clif_info->socket_fd, reply, *reply_len, 0);
-			if (ret < 0)
-				return EINTERR;
-
-			*reply_len = ret;
-			break;
-		} else {
+	tv.tv_sec = CLIF_CMD_RESPONSE_TIMEOUT;
+	tv.tv_usec = 0;
+	FD_ZERO(&rfds);
+	FD_SET(clif_info->socket_fd, &rfds);
+	ret = select(clif_info->socket_fd + 1, &rfds, NULL, NULL, &tv);
+	if (FD_ISSET(clif_info->socket_fd, &rfds)) {
+		ret = recv(clif_info->socket_fd, reply, *reply_len, 0);
+		if (ret < 0)
 			return EINTERR;
-		}
+		*reply_len = ret;
+		return SUCCESS;
+	} else {
+		return EINTERR;
 	}
-
-	return SUCCESS;
 }
 
 static enum fcoe_status fcoeadm_request(struct clif_sock_info *clif_info,
@@ -221,12 +217,24 @@ int main(int argc, char *argv[])
 		switch (opt) {
 		case 'c':
 			cmd = CLIF_CREATE_CMD;
+			/* fall through */
 		case 'd':
 			if (cmd == CLIF_NONE)
 				cmd = CLIF_DESTROY_CMD;
+
+			if (argc > 3) {
+				rc = EBADNUMARGS;
+				break;
+			}
+
+			ifname = optarg;
+			rc = fcoeadm_action(cmd, ifname);
+
+			break;
+
 		case 'r':
-			if (cmd == CLIF_NONE)
-				cmd = CLIF_RESET_CMD;
+			cmd = CLIF_RESET_CMD;
+			/* fall through */
 		case 'S':
 			if (cmd == CLIF_NONE)
 				cmd = CLIF_SCAN_CMD;
@@ -237,7 +245,11 @@ int main(int argc, char *argv[])
 			}
 
 			ifname = optarg;
-			rc = fcoeadm_action(cmd, ifname);
+			rc = fcoe_validate_fcoe_conn(ifname);
+
+			if (!rc)
+				rc = fcoeadm_action(cmd, ifname);
+
 			break;
 
 		case 'i':
@@ -344,6 +356,8 @@ int main(int argc, char *argv[])
 			rc = EIGNORE;
 			break;
 		}
+	} else {
+		fcoeadm_help();
 	}
 
 err:
