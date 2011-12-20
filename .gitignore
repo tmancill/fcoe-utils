@@ -30,3 +30,6 @@ etc/initd/fcoe
 # build.sh generated files
 fcoe-utils-*.tar.gz
 fcoe-utils-*.rpm
+
+.pc/
+.gitignore
