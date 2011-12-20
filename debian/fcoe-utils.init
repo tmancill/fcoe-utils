@@ -26,6 +26,7 @@
 # Default-Start: S
 # Default-Stop: 0 1 6
 # Short-Description: Starts and Stops the Open-FCoE Initiator
+# Description: Open FCoE Initiator
 ### END INIT INFO
 
 CONFIG_DIR=/etc/fcoe
