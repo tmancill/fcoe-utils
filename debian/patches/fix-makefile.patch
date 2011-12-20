@@ -1,0 +1,11 @@
+fix makefile
+Index: fcoe-utils/Makefile.am
+===================================================================
+--- fcoe-utils.orig/Makefile.am	2011-12-19 23:10:16.965565794 +0530
++++ fcoe-utils/Makefile.am	2011-12-20 13:34:15.233594547 +0530
+@@ -63,4 +63,4 @@
+ 	if [ ! -d "${BASH_COMPLETION_DIR}" ] ; then \
+ 		mkdir ${BASH_COMPLETION_DIR}; \
+ 	fi; \
+-	cp -f ${srcdir}/contrib/bash_completion/* ${BASH_COMPLETION_DIR}
++	cp -f ${srcdir}/contrib/bash_completion/* ${DESTDIR}${BASH_COMPLETION_DIR}
