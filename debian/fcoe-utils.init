@@ -75,7 +75,7 @@ start()
 
 	start-stop-daemon --start --quiet --pidfile $PID_FILE --exec ${FCOEMON} -- ${FCOEMON_OPTS}
 
-	touch /var/lock/subsys/fcoe
+	touch /var/lock/fcoe
 	log_end_msg 0;
 }
 
@@ -97,7 +97,7 @@ stop()
 
 	rm -f /var/run/fcoemon.*
 	rm -f /tmp/fcoemon.dcbd.*
-	rm -f /var/lock/subsys/fcoe
+	rm -f /var/lock/fcoe
 	log_end_msg 0;
 }
 
@@ -123,7 +123,7 @@ status()
 		log_daemon_msg "Created interfaces: $interfaces"
 		status=0
 	fi
-	if [ -f /var/lock/subsys/fcoe -a $status -eq 3 ]; then
+	if [ -f /var/lock/fcoe -a $status -eq 3 ]; then
 		status=2
 	fi
 	if [ -f /var/run/fcoe.pid -a $status -eq 3 ]; then
