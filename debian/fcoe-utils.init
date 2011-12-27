@@ -73,7 +73,7 @@ start()
 	modprobe -q libfc 2>/dev/null || :
 	modprobe -q fcoe 2>/dev/null || :
 
-	start-stop-daemon --start --quiet --pidfile $PIDFILE --exec ${FCOEMON} -- ${FCOEMON_OPTS}
+	start-stop-daemon --start --quiet --pidfile $PID_FILE --exec ${FCOEMON} -- ${FCOEMON_OPTS}
 
 	touch /var/lock/subsys/fcoe
 	log_end_msg 0;
