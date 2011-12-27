@@ -84,7 +84,7 @@ stop()
 	local force=$1
 
 	pid=$(pidof "$FCOEMON")
-	if [ "$force" == "force" ]
+	if [ "$force" = "force" ]
 	then
 		log_warning_msg "Destroying any active fcoe interface/s"
 		[ "$pid" ] && kill -HUP $pid
