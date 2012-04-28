@@ -22,16 +22,33 @@ fipvlan \- Fibre Channel over Ethernet VLAN Discovery
 .sp
 \fBfipvlan\fR [\-c|\-\-create] [\-s|\-\-start] \fIinterfaces\fR
 .sp
-\fBfipvlan\fR \-a|\-\-auto [\-c|\-\-create] [\-s|\-\-start]
+\fBfipvlan\fR \-a|\-\-auto [\-c|\-\-create] [\-d|\-\-debug]
+[\-s|\-\-start] [\-l|\-\-link-retry <num>]
 .sp
 \fBfipvlan\fR \-h|\-\-help
 .sp
 \fBfipvlan\fR \-v|\-\-version
 .SH "DESCRIPTION"
 .sp
-The \fBfipvlan\fR command performs Fibre Channel over Ethernet (FCoE) Initialization Protocol (FIP) VLAN Discovery over Ethernet interfaces\&. \fBfipvlan\fR can be used as a diagnostic tool to determine which VLANs have FCoE services available on a network, prior to configuring VLAN interfaces and the \fIOpen\-FCoE\fR initiator\&. \fBfipvlan\fR can also be used to create VLAN interfaces as they are discovered, and to start the \fIOpen\-FCoE\fR initiator\&. The \fB\-\-create\fR and \fB\-\-start\fR options are primarily intended to be used as part of an \fIOpen\-FCoE\fR boot solution\&. FCoE instances started in this way cannot be destroyed or reset by fcoeadm\&.
+The \fBfipvlan\fR command performs Fibre Channel over Ethernet (FCoE)
+Initialization Protocol (FIP) VLAN Discovery over Ethernet
+interfaces\&. \fBfipvlan\fR can be used as a diagnostic tool to
+determine which VLANs have FCoE services available on a network, prior
+to configuring VLAN interfaces and the \fIOpen\-FCoE\fR
+initiator\&. \fBfipvlan\fR can also be used to create VLAN interfaces
+as they are discovered, and to start the \fIOpen\-FCoE\fR
+initiator\&. The \fB\-\-create\fR and \fB\-\-start\fR options are
+primarily intended to be used as part of an \fIOpen\-FCoE\fR boot
+solution\&. FCoE instances started in this way cannot be destroyed or
+reset by fcoeadm\&.
 .sp
-\fBfipvlan\fR takes a list of network interface names to run the VLAN discovery protocol over, or the \fB\-\-auto\fR option to use all available Ethernet interfaces\&.
+\fBfipvlan\fR takes a list of network interface names to run the VLAN
+discovery protocol over, or the \fB\-\-auto\fR option to use all
+available Ethernet interfaces\&.
+.sp
+\fBfipvlan\fR will enable any interface which is found to be not
+enabled by the time the program runs. If no response is received
+on that interface it will be shutdown again when fipvlan terminates.
 .SH "OPTIONS"
 .PP
 \fB\-a\fR, \fB\-\-auto\fR
@@ -44,11 +61,27 @@ Use all Ethernet interfaces currently available
 Create network interfaces for discovered FCoE VLANs\&. If a VLAN device already exists for a discovered VLAN, a new VLAN device will not be created\&.
 .RE
 .PP
+\fB\-d\fR, \fB\-\-debug\fR
+.RS 4
+Enable debugging output
+.RE
+.PP
 \fB\-s\fR, \fB\-\-start\fR
 .RS 4
 Start the
 \fIOpen\-FCoE\fR
 initiator on discovered FCoE VLANs
+.RE
+.PP
+\fB\-f\fR, \fB\-\-suffix \fI<suffix string>\fR
+.RS 4
+Append the specified string \fI<suffix string>\fR to VLAN interface names.
+.RE
+.PP
+\fB\-l\fR, \fB\-\-link-retry \fI<number of retries>\fR
+.RS 4
+Retry check for link up up to \fI<number of retries>\fR times. The
+link state is retried every 500 ms. The default is 20.
 .RE
 .PP
 \fB\-h\fR, \fB\-\-help\fR
@@ -64,7 +97,10 @@ version string
 .RE
 .SH "VLAN NAMING CONVENTIONS"
 .sp
-If a new VLAN device is created, it will have the name \fIdev\fR\&.\fIvlan\fR\-fcoe; where \fIdev\fR is the name of the Ethernet parent device and \fIvlan\fR is the discovered VLAN ID number\&.
+The default VLAN device name is \fIdev\fR\&.\fIvlan\fR; where
+\fIdev\fR is the name of the Ethernet parent device and \fIvlan\fR is
+the discovered VLAN ID number\&. An optional suffix can be appended to
+this with \fI-f\fR commandline option.
 .SH "EXAMPLES"
 .sp
 Display all discoverable VLANs with FCoE services
