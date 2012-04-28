@@ -235,6 +235,54 @@ out:
 	return rc;
 }
 
+static ssize_t rtnl_send_set_iff_down(int s, int ifindex, char *ifname)
+{
+	struct {
+		struct nlmsghdr nh;
+		struct ifinfomsg ifm;
+		char attrbuf[RTA_SPACE(IFNAMSIZ)];
+	} req = {
+		.nh = {
+			.nlmsg_len = NLMSG_LENGTH(sizeof(struct ifinfomsg)),
+			.nlmsg_type = RTM_SETLINK,
+			.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK,
+		},
+		.ifm = {
+			.ifi_index = ifindex,
+			.ifi_flags = 0,
+			.ifi_change = IFF_UP,
+		},
+	};
+	int rc;
+
+	if (ifname)
+		add_rtattr(&req.nh, IFLA_IFNAME, ifname, strlen(ifname));
+
+	RTNL_LOG_DBG("sending RTM_SETLINK request");
+	rc = send(s, &req, req.nh.nlmsg_len, 0);
+	if (rc < 0)
+		RTNL_LOG_ERRNO("netlink send error");
+
+	return rc;
+}
+
+int rtnl_set_iff_down(int ifindex, char *ifname)
+{
+	int s;
+	int rc;
+
+	s = socket(PF_NETLINK, SOCK_DGRAM, NETLINK_ROUTE);
+	if (s < 0)
+		return s;
+	rc = rtnl_send_set_iff_down(s, ifindex, ifname);
+	if (rc < 0)
+		goto out;
+	rc = rtnl_recv(s, NULL, NULL);
+out:
+	close(s);
+	return rc;
+}
+
 static ssize_t rtnl_send_vlan_newlink(int s, int ifindex, int vid, char *name)
 {
 	struct {
@@ -481,13 +529,22 @@ int rtnl_get_sanmac(const char *ifname, unsigned char *addr)
 		goto err_close;
 	}
 
+	if (nh->nlmsg_type != RTM_GETDCB) {
+		RTNL_LOG_DBG("Ignoring netlink msg %x\n", nh->nlmsg_type);
+		rc = -EIO;
+		goto err_close;
+	}
 	dcb = (struct dcbmsg *)NLMSG_DATA(nh);
+	if (dcb->cmd != DCB_CMD_GPERM_HWADDR) {
+		RTNL_LOG_DBG("Unexpected response for DCB command %x\n",
+			     dcb->cmd);
+		rc = -EIO;
+		goto err_close;
+	}
 	rta = (struct rtattr *)(((char *)dcb) +
 	      NLMSG_ALIGN(sizeof(struct dcbmsg)));
-	if ((nh->nlmsg_type != RTM_GETDCB) ||
-	    (dcb->cmd != DCB_CMD_GPERM_HWADDR) ||
-	    (rta->rta_type != DCB_ATTR_PERM_HWADDR)) {
-		RTNL_LOG_DBG("Unexpected netlink response for GPERM_HWADDR\n");
+	if (rta->rta_type != DCB_ATTR_PERM_HWADDR) {
+		RTNL_LOG_DBG("Unexpected DCB RTA attr %x\n", rta->rta_type);
 		rc = -EIO;
 		goto err_close;
 	}
