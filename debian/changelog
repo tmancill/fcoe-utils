@@ -1,4 +1,4 @@
-fcoe-utils (1.0.23-1) UNRELEASED; urgency=low
+fcoe-utils (1.0.23-1) unstable; urgency=low
 
   * [55bb5a4] fix non-dash shell construct
   * [5dbbead] fix typo in variable name
@@ -6,8 +6,9 @@ fcoe-utils (1.0.23-1) UNRELEASED; urgency=low
   * [a3b17d2] fix lock path in /var/lock
   * [77900ee] fix Vcs header
   * [3871f84] Imported Upstream version 1.0.23
+  * [ad7efbf] revive the copyright details
 
- -- Ritesh Raj Sarraf <rrs@debian.org>  Sat, 28 Apr 2012 15:46:37 +0530
+ -- Ritesh Raj Sarraf <rrs@debian.org>  Sat, 28 Apr 2012 16:09:51 +0530
 
 fcoe-utils (1.0.21-1) unstable; urgency=low
 
