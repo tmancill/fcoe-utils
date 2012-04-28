@@ -1,52 +1,53 @@
-This work was packaged for Debian by:
-
-    Ritesh Raj Sarraf <rrs@debian.org> on Sat May 21 12:58:55 IST 2011
-
-It was downloaded from <http://www.open-fcoe.org>
-
-Upstream Author(s):
-
-    Copyright(c) 2009 Intel Corporation.
-
-Copyright:
-
-    Copyright(c) 2009 Intel Corporation.
-    Copyright(c) 2008-2010 Cisco Systems.
-
-License:
-
-This program is free software; you can redistribute it and/or modify it
-under the terms and conditions of the GNU General Public License,
-version 2, as published by the Free Software Foundation.
-
-This program is distributed in the hope it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
-more details.
-
-You should have received a copy of the GNU General Public License along with
-this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
+Format: http://anonscm.debian.org/viewvc/dep/web/deps/dep5.mdwn?revision=174
+Upstream-Name: fcoe-utils
+Upstream-Contact: Open-FCoE Project <http://www.open-fcoe.org>
+Source: http://www.open-fcoe.org
 
 
-include/fc_scsi.h, include/fc_types.h, net_types.h:
 
-This program is free software; you can redistribute it and/or modify it
-under the terms and conditions of the GNU Lesser General Public License,
-version 2.1, as published by the Free Software Foundation.
+Files: *
+Copyright: 2009 Intel Corporation
+Copyright: 2008 - 2010 Cisco Systems
+License: GPL-2
 
-This program is distributed in the hope it will be useful, but WITHOUT
-ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
-FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License
-for more details.
+License: GPL-2
+ This program is free software; you can redistribute it and/or modify it
+ under the terms and conditions of the GNU General Public License,
+ version 2, as published by the Free Software Foundation.
+ .
+ This program is distributed in the hope it will be useful, but WITHOUT
+ ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ more details.
+ .
+ You should have received a copy of the GNU General Public License along with
+ this program; if not, write to the Free Software Foundation, Inc.,
+ 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
+ .
+ On Debian systems, the complete text of the GNU General Public License
+ can be found in /usr/share/common-licenses/GPL-2
 
-You should have received a copy of the GNU Lesser General Public License
-along with this program; if not, write to the Free Software Foundation, Inc.,
-51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
+Files: include/fc_scsi.h include/fc_types.h net_types.h
+Copyright: 2008 Intel Corporation
+License: LGPL-2.1
 
+License: LGPL-2.1
+ This program is free software; you can redistribute it and/or modify it
+ under the terms and conditions of the GNU Lesser General Public License,
+ version 2.1, as published by the Free Software Foundation.
+ .
+ This program is distributed in the hope it will be useful, but WITHOUT
+ ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ FITNESS FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License
+ for more details.
+ .
+ You should have received a copy of the GNU Lesser General Public License
+ along with this program; if not, write to the Free Software Foundation, Inc.,
+ 51 Franklin St - Fifth Floor, Boston, MA 02110-1301 USA.
+ .
+ On Debian systems, the complete text of the GNU Lesser General Public License
+ can be found in /usr/share/common-licenses/LGPL-2.1
 
-The Debian packaging is:
-
-    Copyright (C) 2011 Ritesh Raj Sarraf <rrs@debian.org>
-
-and is licensed under the GPL version 2,  see `/usr/share/common-licenses/GPL-2'.
+Files: debian/*
+Copyright: 2011 - 2012 Ritesh Raj Sarraf <rrs@debian.org>
+License: GPL-2
