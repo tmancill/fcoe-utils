@@ -35,10 +35,23 @@
 #define MAX_STR_LEN 512
 #define MAX_PATH_LEN MAX_STR_LEN
 
-#define SYSFS_MOUNT	"/sys"
-#define SYSFS_NET	SYSFS_MOUNT "/class/net"
-#define SYSFS_FCHOST	SYSFS_MOUNT "/class/fc_host"
-#define SYSFS_FCOE	SYSFS_MOUNT "/module/libfcoe/parameters"
+#define SYSFS_MOUNT                            "/sys"
+#define SYSFS_NET               SYSFS_MOUNT    "/class/net"
+#define SYSFS_FCHOST            SYSFS_MOUNT    "/class/fc_host"
+#define SYSFS_FCOE_BUS          SYSFS_MOUNT    "/bus/fcoe"
+#define SYSFS_FCOE_BUS_DEVICES  SYSFS_FCOE_BUS "/devices"
+
+#define SYSFS_FCOE   SYSFS_MOUNT "/module/libfcoe/parameters" /* legacy */
+#define FCOE_CREATE  SYSFS_FCOE  "/create"  /* legacy */
+#define FCOE_CREATE_VN2VN  SYSFS_FCOE  "/create_vn2vn"  /* legacy */
+#define FCOE_DESTROY SYSFS_FCOE  "/destroy" /* legacy */
+#define FCOE_ENABLE  SYSFS_FCOE  "/enable"  /* legacy */
+#define FCOE_DISABLE SYSFS_FCOE  "/disable" /* legacy */
+
+#define FCOE_BUS_CREATE        SYSFS_FCOE_BUS "/ctlr_create"
+#define FCOE_BUS_DESTROY       SYSFS_FCOE_BUS "/ctlr_destroy"
+#define FCOE_CTLR_ATTR_ENABLED "/enabled"
+#define FCOE_CTLR_ATTR_MODE    "/mode"
 
 #define FCHOSTBUFLEN 64
 
@@ -67,14 +80,20 @@ enum fcoe_status {
 	ENOMONCONN,   /* Not connected to fcoemon */
 	ECONNTMOUT,   /* Connection to fcoemon timed out */
 	EHBAAPIERR,   /* Error using HBAAPI/libhbalinux */
+	EBADCLIFMSG,  /* Messaging error */
 };
 
 enum fcoe_status fcoe_validate_interface(char *ifname);
 enum fcoe_status fcoe_validate_fcoe_conn(char *ifname);
-enum fcoe_status fcoe_find_fchost(char *ifname, char *fchost, int len);
+enum fcoe_status fcoe_find_fchost(const char *ifname, char *fchost, int len);
+enum fcoe_status fcoe_find_ctlr(const char *fchost, char *ctlr, int len);
 int fcoe_checkdir(char *dir);
 int check_symbolic_name_for_interface(const char *symbolic_name,
 				      const char *ifname);
 char *get_ifname_from_symbolic_name(const char *symbolic_name);
-
+int fcoe_sysfs_read(char *buf, int size, const char *path);
+enum fcoe_status fcm_write_str_to_sysfs_file(const char *path, const char *str);
+enum fcoe_status fcm_write_str_to_ctlr_attr(const char *ctlr,
+					    const char *attr,
+					    const char *str);
 #endif /* _FCOE_UTILS_H_ */
