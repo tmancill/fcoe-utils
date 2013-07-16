@@ -41,6 +41,8 @@
 #include "hbaapi.h"
 #include "fcoeadm_display.h"
 #include "fcoe_utils.h"
+#include "fcoemon_utils.h"
+#include "libopenfcoe.h"
 
 /* #define TEST_HBAAPI_V1 */
 #ifdef TEST_HBAAPI_V1
@@ -65,10 +67,7 @@
 
 #define FCP_TARG_STR "FCP Target"
 
-struct sa_nameval {
-	char        *nv_name;
-	u_int32_t   nv_val;
-};
+#define SYSFS_HOST_DIR     "/sys/class/fc_host"
 
 /*
  * HBA and port objects are one-to-one since there
@@ -116,28 +115,6 @@ struct sa_nameval port_speeds[] = {
 	{ NULL, 0 }
 };
 
-/** sa_enum_decode(buf, len, tp, val)
- *
- * @param buf buffer for result (may be used or not).
- * @param len size of buffer (at least 32 bytes recommended).
- * @param tp pointer to table of names and values, struct sa_nameval.
- * @param val value to be decoded into a name.
- * @returns pointer to name string.  Unknown values are put into buffer in hex.
- */
-static const char *
-sa_enum_decode(char *buf, size_t len,
-	       const struct sa_nameval *tp, u_int32_t val)
-{
-	snprintf(buf, len, "Unknown");
-	for (; tp->nv_name != NULL; tp++) {
-		if (tp->nv_val == val) {
-			strncpy(buf, tp->nv_name, len);
-			break;
-		}
-	}
-	return buf;
-}
-
 /** sa_enum_decode_speed(buf, len, val)
  *
  * @param buf buffer for result (may be used or not).
@@ -151,7 +128,7 @@ sa_enum_decode_speed(char *buf, size_t buflen,
 		     u_int32_t val)
 {
 	char *prefix = "";
-	ssize_t len = 0;
+	size_t len;
 	struct sa_nameval *tp = port_speeds;
 	char *cp = buf;
 
@@ -159,7 +136,7 @@ sa_enum_decode_speed(char *buf, size_t buflen,
 	for (; tp->nv_name != NULL; tp++) {
 		if (tp->nv_val & val) {
 			len = snprintf(cp, buflen, "%s%s", prefix, tp->nv_name);
-			if (len <= 0 || len >= buflen)
+			if (len == 0 || len >= buflen)
 				break;
 			cp += len;
 			buflen -= len;
@@ -181,92 +158,6 @@ sa_dump_wwn(void *Data, int Length, int Break)
 		if ((Break != 0) && (!(i % Break)))
 			printf("     ");
 	}
-}
-
-/*
- * Make a printable NUL-terminated copy of the string.
- * The source buffer might not be NUL-terminated.
- */
-static char *
-sa_strncpy_safe(char *dest, size_t len, const char *src, size_t src_len)
-{
-	char *dp = dest;
-	const char *sp = src;
-
-	while (len-- > 1 && src_len-- > 0 && *sp != '\0') {
-		*dp++ = isprint(*sp) ? *sp : (isspace(*sp) ? ' ' : '.');
-		sp++;
-	}
-	*dp = '\0';
-
-	/*
-	 * Take off trailing blanks.
-	 */
-	while (--dp >= dest && isspace(*dp))
-		*dp = '\0';
-
-	return dest;
-}
-
-/*
- * Read a line from the specified file in the specified directory
- * into the buffer.  The file is opened and closed.
- * Any trailing white space is trimmed off.
- * This is useful for accessing /sys files.
- * Returns 0 or an error number.
- */
-static int
-sa_sys_read_line(const char *dir, const char *file, char *buf, size_t len)
-{
-	FILE *fp;
-	char file_name[256];
-	char *cp;
-	int rc = 0;
-
-	snprintf(file_name, sizeof(file_name), "%s/%s", dir, file);
-	fp = fopen(file_name, "r");
-	if (fp == NULL)
-		rc = -1;
-	else {
-		cp = fgets(buf, len, fp);
-		if (cp == NULL) {
-			fprintf(stderr, "read error or empty file %s,"
-				" errno=0x%x\n", file_name, errno);
-			rc = -1;
-		} else {
-
-			/*
-			 * Trim off trailing newline or other white space.
-			 */
-			cp = buf + strlen(buf);
-			while (--cp >= buf && isspace(*cp))
-				*cp = '\0';
-		}
-		fclose(fp);
-	}
-	return rc;
-}
-
-static int
-sa_sys_read_u32(const char *dir, const char *file, u_int32_t *vp)
-{
-	char buf[256];
-	int rc;
-	u_int32_t val;
-	char *endptr;
-
-	rc = sa_sys_read_line(dir, file, buf, sizeof(buf));
-	if (rc == 0) {
-		val = strtoul(buf, &endptr, 0);
-		if (*endptr != '\0') {
-			fprintf(stderr,
-				"parse error. file %s/%s line '%s'\n",
-				dir, file, buf);
-			rc = -1;
-		} else
-			*vp = val;
-	}
-	return rc;
 }
 
 static int is_fcp_target(HBA_PORTATTRIBUTES *rp_info)
@@ -299,8 +190,7 @@ static void show_hba_info(HBA_ADAPTERATTRIBUTES *hba_info)
 	printf("\n");
 }
 
-static void show_port_info(HBA_ADAPTERATTRIBUTES *hba_info,
-			   HBA_PORTATTRIBUTES *lp_info)
+static void show_port_info(HBA_PORTATTRIBUTES *lp_info)
 {
 	char buf[256];
 	int len = sizeof(buf);
@@ -344,17 +234,18 @@ static void show_port_info(HBA_ADAPTERATTRIBUTES *hba_info,
 }
 
 static void show_target_info(const char *symbolic_name,
-			     HBA_ADAPTERATTRIBUTES *hba_info,
 			     HBA_PORTATTRIBUTES *rp_info)
 {
 	char buf[256];
-	u_int32_t tgt_id;
+	int tgt_id;
 	int rc;
 	char *ifname;
 
 	ifname = get_ifname_from_symbolic_name(symbolic_name);
 
 	rc = sa_sys_read_line(rp_info->OSDeviceName, "roles", buf, sizeof(buf));
+	if (rc)
+		strncpy(buf, "Unknown", sizeof(buf));
 	printf("    Interface:        %s\n", ifname);
 	printf("    Roles:            %s\n", buf);
 
@@ -366,9 +257,14 @@ static void show_target_info(const char *symbolic_name,
 	show_wwn(rp_info->PortWWN.wwn);
 	printf("\n");
 
-	rc = sa_sys_read_u32(rp_info->OSDeviceName, "scsi_target_id", &tgt_id);
-	if (tgt_id != -1)
-		printf("    Target ID:        %d\n", tgt_id);
+	rc = sa_sys_read_int(rp_info->OSDeviceName, "scsi_target_id", &tgt_id);
+	printf("    Target ID:        ");
+	if (rc)
+		printf("Unknown\n");
+	else if (tgt_id != -1)
+		printf("%d\n", tgt_id);
+	else
+		printf("Unset\n");
 
 	printf("    MaxFrameSize:     %d\n", rp_info->PortMaxFrameSize);
 
@@ -768,8 +664,7 @@ show_short_lun_info(HBA_FCP_SCSI_ENTRY *ep, char *inqbuf,
 }
 
 static void
-show_full_lun_info(HBA_HANDLE hba_handle,
-		   HBA_ADAPTERATTRIBUTES *hba_info,
+show_full_lun_info(UNUSED HBA_HANDLE hba_handle,
 		   HBA_PORTATTRIBUTES *lp_info,
 		   HBA_PORTATTRIBUTES *rp_info,
 		   HBA_FCP_SCSI_ENTRY *ep,
@@ -838,7 +733,7 @@ show_full_lun_info(HBA_HANDLE hba_handle,
 	       lp_info->PortFcId);
 	printf("        Target FCID:        0x%06X\n",
 	       rp_info->PortFcId);
-	if (tgt_id == -1)
+	if (tgt_id == 0xFFFFFFFFU)
 		printf("        Target ID:          (None)\n");
 	else
 		printf("        Target ID:          %u\n", tgt_id);
@@ -956,10 +851,8 @@ get_device_map(HBA_HANDLE hba_handle, HBA_PORTATTRIBUTES *lp_info,
 
 static void
 scan_device_map(HBA_HANDLE hba_handle,
-		HBA_ADAPTERATTRIBUTES *hba_info,
 		HBA_PORTATTRIBUTES *lp_info,
 		HBA_PORTATTRIBUTES *rp_info,
-		const char *ifname,
 		enum disp_style style)
 {
 	HBA_STATUS status;
@@ -1049,7 +942,7 @@ scan_device_map(HBA_HANDLE hba_handle,
 			show_short_lun_info(ep, inqbuf, blksize, lba);
 			break;
 		case DISP_LUN:
-			show_full_lun_info(hba_handle, hba_info, lp_info,
+			show_full_lun_info(hba_handle, lp_info,
 					   rp_info, ep, inqbuf, blksize, lba);
 			break;
 		}
@@ -1122,7 +1015,7 @@ static void hba_table_list_destroy(struct hba_name_table_list *hba_table_list)
 	hba_table_list = NULL;
 }
 
-static enum fcoe_status fcoeadm_loadhba()
+static enum fcoe_status fcoeadm_loadhba(void)
 {
 	if (HBA_STATUS_OK != HBA_LoadLibrary())
 		return EHBAAPIERR;
@@ -1332,7 +1225,6 @@ enum fcoe_status display_adapter_info(const char *ifname)
 	struct hba_name_table_list *hba_table_list = NULL;
 	enum fcoe_status rc = SUCCESS;
 	int i, j, num_hbas = 0;
-	HBA_HANDLE hba_handle;
 	HBA_PORTATTRIBUTES *port_attrs;
 	HBA_PORTATTRIBUTES *sport_attrs;
 	HBA_ADAPTERATTRIBUTES *hba_attrs;
@@ -1360,7 +1252,6 @@ enum fcoe_status display_adapter_info(const char *ifname)
 		    hba_table_list->hba_table[i].displayed)
 			continue;
 
-		hba_handle = hba_table_list->hba_table[i].hba_handle;
 		port_attrs = &hba_table_list->hba_table[i].port_attrs;
 		hba_attrs = &hba_table_list->hba_table[i].hba_attrs;
 
@@ -1400,8 +1291,7 @@ enum fcoe_status display_adapter_info(const char *ifname)
 			if (!strncmp(hba_attrs->SerialNumber,
 				     shba_attrs->SerialNumber,
 				     strlen(hba_attrs->SerialNumber))) {
-				show_port_info(shba_attrs,
-					       sport_attrs);
+				show_port_info(sport_attrs);
 				hba_table_list->hba_table[j].displayed = 1;
 			}
 		}
@@ -1420,11 +1310,11 @@ enum fcoe_status display_target_info(const char *ifname,
 	HBA_STATUS retval;
 	HBA_PORTATTRIBUTES rport_attrs;
 	struct hba_name_table_list *hba_table_list = NULL;
-	int i, target_index, num_hbas = 0;
+	int i, num_hbas = 0;
+	unsigned int target_index;
 	enum fcoe_status rc = SUCCESS;
 	HBA_HANDLE hba_handle;
 	HBA_PORTATTRIBUTES *port_attrs;
-	HBA_ADAPTERATTRIBUTES *hba_attrs;
 
 	if (fcoeadm_loadhba())
 		return EHBAAPIERR;
@@ -1450,7 +1340,6 @@ enum fcoe_status display_target_info(const char *ifname,
 
 		hba_handle = hba_table_list->hba_table[i].hba_handle;
 		port_attrs = &hba_table_list->hba_table[i].port_attrs;
-		hba_attrs = &hba_table_list->hba_table[i].hba_attrs;
 
 		if (ifname && check_symbolic_name_for_interface(
 			    port_attrs->PortSymbolicName,
@@ -1490,7 +1379,6 @@ enum fcoe_status display_target_info(const char *ifname,
 
 			show_target_info(
 				port_attrs->PortSymbolicName,
-				hba_attrs,
 				&rport_attrs);
 
 			if (port_attrs->PortState != HBA_PORTSTATE_ONLINE)
@@ -1501,15 +1389,138 @@ enum fcoe_status display_target_info(const char *ifname,
 			 * under the target.
 			 */
 			scan_device_map(hba_handle,
-					hba_attrs,
 					port_attrs,
-					&rport_attrs, ifname, style);
+					&rport_attrs, style);
 		}
 	}
 
 	hba_table_list_destroy(hba_table_list);
 out:
 	HBA_FreeLibrary();
+
+	return rc;
+}
+
+static struct sa_table fcoe_ctlr_table;
+
+static void print_fcoe_fcf_device(void *ep, UNUSED void *arg)
+{
+	struct fcoe_fcf_device *fcf = (struct fcoe_fcf_device *)ep;
+	char temp[MAX_STR_LEN];
+	char mac[MAX_STR_LEN];
+	int len = sizeof(temp);
+	const char *buf;
+
+	printf("\n");
+	printf("    FCF #%u Information\n", fcf->index);
+	buf = sa_enum_decode(temp, len, fcf_state_table, fcf->state);
+	if (!buf)
+		buf = temp;
+	printf("        Connection Mode:  %s\n", buf);
+	printf("        Fabric Name:      0x%016lx\n", fcf->fabric_name);
+	printf("        Switch Name       0x%016lx\n", fcf->switch_name);
+	mac2str(fcf->mac, mac, MAX_STR_LEN);
+	printf("        MAC Address:      %s\n", mac);
+	printf("        FCF Priority:     %u\n", fcf->priority);
+	printf("        FKA Period:       %u seconds\n", fcf->fka_period);
+	printf("        Selected:         ");
+	(fcf->selected == 1) ? printf("Yes\n") : printf("No\n");
+	printf("        VLAN ID:          %u\n", fcf->vlan_id);
+	printf("\n");
+}
+
+static void print_interface_fcoe_fcf_device(void *ep, void *arg)
+{
+	struct fcoe_ctlr_device *ctlr = (struct fcoe_ctlr_device *)ep;
+	const char *ifname = arg;
+	const char *buf;
+	char temp[MAX_STR_LEN];
+	int len = sizeof(temp);
+
+	if (!ifname || !strncmp(ifname, ctlr->ifname, IFNAMSIZ)) {
+		printf("    Interface:        %s\n", ctlr->ifname);
+		buf = sa_enum_decode(temp, len, fip_conn_type_table,
+				     ctlr->mode);
+		if (!buf)
+			buf = temp;
+		printf("    Connection Type:  %s\n", buf);
+
+		sa_table_iterate(&ctlr->fcfs, print_fcoe_fcf_device, NULL);
+	}
+}
+
+/*
+ * NULL ifname indicates to dispaly all fcfs
+ */
+enum fcoe_status display_fcf_info(const char *ifname)
+{
+	enum fcoe_status rc = SUCCESS;
+
+	sa_table_init(&fcoe_ctlr_table);
+	read_fcoe_ctlr(&fcoe_ctlr_table);
+
+	sa_table_iterate(&fcoe_ctlr_table, print_interface_fcoe_fcf_device,
+			 (void *)ifname);
+	sa_table_iterate(&fcoe_ctlr_table, free_fcoe_ctlr_device, NULL);
+
+	return rc;
+}
+
+static void print_interface_fcoe_lesb_stats(void *ep, void *arg)
+{
+	struct fcoe_ctlr_device *ctlr = (struct fcoe_ctlr_device *)ep;
+	const char *ifname = arg;
+
+	if (!ifname || !strncmp(ifname, ctlr->ifname, IFNAMSIZ)) {
+		printf("%-8u ", ctlr->lesb_link_fail);
+		printf("%-9u ", ctlr->lesb_vlink_fail);
+		printf("%-7u ", ctlr->lesb_miss_fka);
+		printf("%-7u ", ctlr->lesb_symb_err);
+		printf("%-9u ", ctlr->lesb_err_block);
+		printf("%-9u ", ctlr->lesb_fcs_error);
+		printf("\n");
+	}
+}
+
+static void
+print_interface_fcoe_lesb_stats_header(const char *ifname, int interval)
+{
+	printf("\n");
+	printf("%-7s interval: %-2d\n", ifname, interval);
+	printf("LinkFail VLinkFail MissFKA SymbErr ErrBlkCnt FCSErrCnt\n");
+	printf("-------- --------- ------- ------- --------- ---------\n");
+}
+
+enum fcoe_status display_port_lesb_stats(const char *ifname,
+					 int interval)
+{
+	enum fcoe_status rc = SUCCESS;
+	int i = 0;
+
+	while (1) {
+		unsigned int secs_left;
+
+		sa_table_init(&fcoe_ctlr_table);
+		read_fcoe_ctlr(&fcoe_ctlr_table);
+
+		if (!(i % 52))
+			print_interface_fcoe_lesb_stats_header(ifname,
+							       interval);
+
+		sa_table_iterate(&fcoe_ctlr_table,
+				 print_interface_fcoe_lesb_stats,
+				 (void *)ifname);
+
+		sa_table_iterate(&fcoe_ctlr_table,
+				 free_fcoe_ctlr_device, NULL);
+
+		i++;
+
+		secs_left = interval;
+		do {
+			secs_left = sleep(secs_left);
+		} while (secs_left);
+	}
 
 	return rc;
 }

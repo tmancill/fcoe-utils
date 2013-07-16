@@ -121,17 +121,19 @@ int rtnl_recv(int s, rtnl_handler *fn, void *arg)
 {
 	char buf[8192];
 	struct nlmsghdr *nh;
-	int len;
+	size_t len;
 	int rc = 0;
+	int ret;
 	bool more = false;
 
 more:
-	len = recv(s, buf, sizeof(buf), 0);
-	if (len < 0) {
+	ret = recv(s, buf, sizeof(buf), 0);
+	if (ret < 0) {
 		RTNL_LOG_ERRNO("netlink recvmsg error");
-		return len;
+		return ret;
 	}
 
+	len = ret;
 	for (nh = NLMSG(buf); NLMSG_OK(nh, len); nh = NLMSG_NEXT(nh, len)) {
 		if (nh->nlmsg_flags & NLM_F_MULTI)
 			more = true;
@@ -371,12 +373,10 @@ static ssize_t rtnl_send_getlink(int s, int ifindex, char *name)
 static int rtnl_getlinkname_handler(struct nlmsghdr *nh, void *arg)
 {
 	char *name = arg;
-	struct ifinfomsg *ifm;
 	struct rtattr *ifla[__IFLA_MAX];
 
 	switch (nh->nlmsg_type) {
 	case RTM_NEWLINK:
-		ifm = NLMSG_DATA(nh);
 		parse_ifinfo(ifla, nh);
 		strncpy(name, RTA_DATA(ifla[IFLA_IFNAME]), IFNAMSIZ);
 		return 0;
@@ -413,14 +413,12 @@ struct vlan_identifier {
 static int rtnl_find_vlan_handler(struct nlmsghdr *nh, void *arg)
 {
 	struct vlan_identifier *vlan = arg;
-	struct ifinfomsg *ifm;
 	struct rtattr *ifla[__IFLA_MAX];
 	struct rtattr *linkinfo[__IFLA_INFO_MAX];
 	struct rtattr *vlaninfo[__IFLA_VLAN_MAX];
 
 	switch (nh->nlmsg_type) {
 	case RTM_NEWLINK:
-		ifm = NLMSG_DATA(nh);
 		parse_ifinfo(ifla, nh);
 		if (!ifla[IFLA_LINK])
 			break;

@@ -78,8 +78,7 @@ static const char *cmdname;
 #define FC_WKA_FABRIC_CONTROLLER ((fc_fid_t)0xfffffd)
 #define FC_WKA_DIRECTORY_SERVICE ((fc_fid_t)0xfffffc)
 
-static void
-fp_usage()
+static void fp_usage(void)
 {
 	fprintf(stderr,
 		"Usage: %s [ -fqx ] [ -i <interval> ] [ -c <count> ] -h <hba> "
@@ -158,7 +157,9 @@ static struct fp_stats fp_stats;
 		p[7] = (u_char) (v) & 0xFF;		\
 	} while (0)
 
+__attribute__((__format__(__printf__, 2, 3)))
 static void sa_log_func(const char *func, const char *format, ...);
+__attribute__((__format__(__printf__, 3, 4)))
 static void sa_log_err(int, const char *func, const char *format, ...);
 static void sa_log_output(const char *buf);
 
@@ -478,7 +479,8 @@ fp_find_hba(void)
 	fc_wwn_t wwn = 0;
 	HBA_WWN wwpn;
 	char *endptr;
-	int i, found = 0;
+	unsigned int i;
+	int found = 0;
 
 	/*
 	 * Parse HBA spec. if there is one.
@@ -676,8 +678,7 @@ fp_ns_get_id(uint32_t op, fc_wwn_t wwn, char *response, size_t *resp_len)
 	return 0;
 }
 
-static int
-fp_lookup_target()
+static int fp_lookup_target(void)
 {
 	char response[32];
 	size_t resp_len;
@@ -728,14 +729,13 @@ static uint32_t fp_get_max_data_len(fc_fid_t fcid)
 {
 	HBA_STATUS retval;
 	HBA_PORTATTRIBUTES rport_attrs;
-	int i;
+	unsigned int i;
 	uint32_t dlen = 0;
 
 	if (!hba_handle) {
 		SA_LOG("%s: Invalid handle! HBA_OpenAdapter failed?", fp_dev);
 		goto out;
 	}
-
 
 	/* locate targets */
 	for (i = 0; i < port_attrs.NumberofDiscoveredPorts; i++) {
@@ -782,7 +782,7 @@ out:
  * (default to be FC_MAX_PAYLOAD). For any FCID that is in FC-LS Table 30 WKA,
  * use FP_LEN_MAX for ECHO data, i.e., FC_MAX_PAYLOAD - 4.
  */
-static void fp_check_data_len()
+static void fp_check_data_len(void)
 {
 	fc_fid_t sid;
 	uint32_t slen = 0;
@@ -993,8 +993,7 @@ static int fp_send_ping(void)
 	return rc;
 }
 
-static void
-fp_signal_handler(int sig)
+static void fp_signal_handler(UNUSED int sig)
 {
 	/*
 	 * Allow graceful termination of the
