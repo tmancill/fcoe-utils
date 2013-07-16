@@ -1,4 +1,4 @@
-Format: http://anonscm.debian.org/viewvc/dep/web/deps/dep5.mdwn?revision=174
+Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: fcoe-utils
 Upstream-Contact: Open-FCoE Project <http://www.open-fcoe.org>
 Source: http://www.open-fcoe.org
@@ -7,7 +7,7 @@ Source: http://www.open-fcoe.org
 
 Files: *
 Copyright: 2009 Intel Corporation
-Copyright: 2008 - 2010 Cisco Systems
+	   2008 - 2010 Cisco Systems
 License: GPL-2
 
 License: GPL-2
