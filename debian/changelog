@@ -1,3 +1,9 @@
+fcoe-utils (1.0.28-1) UNRELEASED; urgency=low
+
+  * [612eb6f] Imported Upstream version 1.0.28
+
+ -- Ritesh Raj Sarraf <rsarraf@netapp.com>  Wed, 17 Jul 2013 00:12:18 +0530
+
 fcoe-utils (1.0.23-1) unstable; urgency=low
 
   * [55bb5a4] fix non-dash shell construct
