@@ -27,9 +27,7 @@
 
 */
 
-#define FCM_SRV_DIR "/var/run/fcm"
 #define CLIF_IFNAME "fcm_clif"
-#define CLIF_SOCK_FILE FCM_SRV_DIR "/" CLIF_IFNAME
 
 #define CLIF_PID_FILE _PATH_VARRUN "fcoemon.pid"
 
@@ -41,7 +39,8 @@ enum clif_action {
 	CLIF_CREATE_CMD,
 	CLIF_DESTROY_CMD,
 	CLIF_RESET_CMD,
-	CLIF_SCAN_CMD
+	CLIF_SCAN_CMD,
+	CLIF_PID_CMD
 };
 
 /**
@@ -55,12 +54,20 @@ struct clif_sock_info {
 	struct sockaddr_un dest;
 };
 
+enum clif_flags {
+	CLIF_FLAGS_NONE = 0,
+	CLIF_FLAGS_FABRIC = 0x00,
+	CLIF_FLAGS_VN2VN = 0x01,
+	CLIF_FLAGS_MODE_MASK = 0x0F,	/* Mask for mode encoding */
+};
+
 /*
  * Description of fcoemon and fcoeadm socket data structure interface
  */
 struct clif_data {
 	enum clif_action cmd;
 	char ifname[IFNAMSIZ];
+	enum clif_flags flags;
 };
 
 #endif /* _FCOE_CLIF_H_ */
