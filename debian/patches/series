@@ -1,2 +1,3 @@
-fix-build-error-Werror.patch
+0002-fcnsq-Fix-build-warnings.patch
+0001-fcoeadm-Fix-compilatoin-warnings.patch
 fix-makefile.patch
