@@ -1,3 +1,10 @@
+fcoe-utils (1.0.28-3) experimental; urgency=low
+
+  * [3f1e16d] Drop libnl as fcoe does not use it
+  * [1fc3782] Add upstream patches to fix build warning
+
+ -- Ritesh Raj Sarraf <rsarraf@netapp.com>  Thu, 25 Jul 2013 14:35:18 +0530
+
 fcoe-utils (1.0.28-2) unstable; urgency=low
 
   * [ee6f461] Add patch fix-build-error-Werror.patch to fix build errors
