@@ -1,3 +1,9 @@
+fcoe-utils (1.0.28-4) experimental; urgency=low
+
+  * [57e3369] Drop old patches, and add new patches from upstream
+
+ -- Ritesh Raj Sarraf <rsarraf@netapp.com>  Wed, 07 Aug 2013 19:10:33 +0530
+
 fcoe-utils (1.0.28-3) experimental; urgency=low
 
   * [3f1e16d] Drop libnl as fcoe does not use it
