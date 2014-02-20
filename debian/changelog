@@ -1,3 +1,13 @@
+fcoe-utils (1.0.29+git0.09caead4-1) unstable; urgency=medium
+
+  * [e54bb50] Imported Upstream version 1.0.29
+  * [7e3fd92] Imported Upstream version 1.0.29+git0.09caead4
+    Closes: #724136
+  * [048e654] Refresh patches and drop unneeded ones
+  * [a769fd2] Clean broken links in clean target
+
+ -- Ritesh Raj Sarraf <rsarraf@netapp.com>  Thu, 20 Feb 2014 20:45:25 +0530
+
 fcoe-utils (1.0.28-4) experimental; urgency=low
 
   * [57e3369] Drop old patches, and add new patches from upstream
