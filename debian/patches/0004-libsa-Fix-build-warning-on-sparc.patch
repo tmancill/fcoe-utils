@@ -71,11 +71,11 @@ Signed-off-by: Robert Love <robert.w.love@intel.com>
  lib/sa_log.c |    8 ++++----
  1 file changed, 4 insertions(+), 4 deletions(-)
 
-diff --git a/lib/sa_log.c b/lib/sa_log.c
-index 65f7e40..88b3da5 100644
---- a/lib/sa_log.c
-+++ b/lib/sa_log.c
-@@ -175,8 +175,8 @@ sa_log_timestamp(void)
+Index: fcoe-utils/lib/sa_log.c
+===================================================================
+--- fcoe-utils.orig/lib/sa_log.c	2014-02-20 20:37:27.639734137 +0530
++++ fcoe-utils/lib/sa_log.c	2014-02-20 20:37:27.635734137 +0530
+@@ -169,8 +169,8 @@
  	if (sa_log_flags & SA_LOGF_TIME) {
  		ctime_r(&t.tv_sec, ctime_buf);
  		ctime_buf[11 + 8] = '\0';   /* trim ctime after seconds */
@@ -86,7 +86,7 @@ index 65f7e40..88b3da5 100644
  	}
  	if (sa_log_flags & SA_LOGF_DELTA) {
  		if (tlast.tv_sec == 0)
-@@ -185,8 +185,8 @@ sa_log_timestamp(void)
+@@ -179,8 +179,8 @@
  		tlast = t;
  		if (diff.tv_sec != 0 ||
  		    diff.tv_usec >= sa_log_time_delta_min * 1000)
@@ -97,6 +97,3 @@ index 65f7e40..88b3da5 100644
  		else
  			fprintf(stderr, "%8s ", "");
  	}
--- 
-1.7.10.4
-

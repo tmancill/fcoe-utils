@@ -1,9 +1,9 @@
 fix makefile
 Index: fcoe-utils/Makefile.am
 ===================================================================
---- fcoe-utils.orig/Makefile.am	2011-12-20 13:34:54.013964563 +0530
-+++ fcoe-utils/Makefile.am	2011-12-20 13:40:43.549405953 +0530
-@@ -60,7 +60,7 @@
+--- fcoe-utils.orig/Makefile.am	2014-02-20 20:37:42.267734726 +0530
++++ fcoe-utils/Makefile.am	2014-02-20 20:37:42.267734726 +0530
+@@ -63,7 +63,7 @@
  	if [ ! -f ${DESTDIR}${fcoe_configdir}/config ] ; then \
  		cp ${srcdir}/etc/config ${DESTDIR}${fcoe_configdir}/config; \
  	fi; \

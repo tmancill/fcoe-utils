@@ -1,5 +1,2 @@
-0001-fcnsq-Fix-build-warnings.patch
-0002-fcoeadm-Fix-compilatoin-warnings.patch
-0003-fcoemon-Fix-build-warning-on-s390-architecture.patch
 0004-libsa-Fix-build-warning-on-sparc.patch
 fix-makefile.patch
