@@ -17,3 +17,8 @@ override_dh_auto_configure:
 
 override_dh_installinit:
 	dh_installinit -u 'start 45 S . stop 81 0 1 6 .' --no-start
+
+override_dh_auto_clean:
+	# Remove the broken links
+	rm -f compile depcomp install-sh missing
+	dh_auto_clean
