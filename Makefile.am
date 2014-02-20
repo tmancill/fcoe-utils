@@ -9,21 +9,18 @@ AM_CFLAGS = -Wall -Wformat=2 -Werror -Wmissing-prototypes -Wstrict-prototypes
 
 ## rules for building fcoeadm
 fcoeadm_SOURCES = fcoeadm.c fcoeadm_display.c
-fcoeadm_LDADD = lib/libutil.a libopenfcoe.a
+fcoeadm_LDADD = lib/libutil.a libopenfcoe.a $(HBAAPI_LIBS)
 fcoeadm_CFLAGS = $(AM_CFLAGS) $(HBAAPI_CFLAGS)
-fcoeadm_LDFLAGS = $(AM_LDFLAGS) $(HBAAPI_LIBS)
 
 ## rules for building fcoemon
 fcoemon_SOURCES = fcoemon.c
-fcoemon_LDADD = lib/libutil.a
+fcoemon_LDADD = lib/libutil.a -lrt
 fcoemon_CFLAGS = $(AM_CFLAGS) $(DCBD_CFLAGS)
-fcoemon_LDFLAGS = $(AM_LDFLAGS) -lrt
 
 ## rules for building fcping
 fcping_SOURCES = fcping.c
-fcping_LDADD = lib/libutil.a
+fcping_LDADD = lib/libutil.a $(HBAAPI_LIBS) -lrt
 fcping_CFLAGS = $(AM_CFLAGS) $(HBAAPI_CFLAGS)
-fcping_LDFLAGS = $(AM_LDFLAGS) $(HBAAPI_LIBS) -lrt
 
 ## rules for building fipvlan
 fipvlan_SOURCES = fipvlan.c
@@ -43,6 +40,11 @@ noinst_HEADERS = fcoeadm_display.h fcoe_clif.h fcoemon.h \
 ## install configuration file in $(prefix)/etc/fcoe
 fcoe_configdir = ${sysconfdir}/fcoe
 dist_fcoe_config_DATA = etc/cfg-ethx
+
+## install systemd service files
+if HAVE_SYSTEMD
+systemdsystemunit_DATA = etc/systemd/fcoe.service etc/systemd/fcoemon.socket
+endif
 
 ## man pages for fcoeadm and fcoemon
 dist_man_MANS = doc/fcoeadm.8 doc/fcoemon.8 doc/fipvlan.8 doc/fcrls.8 \
@@ -67,7 +69,7 @@ init_d_SCRIPTS = etc/initd/fcoe
 
 dist_noinst_DATA = README COPYING INSTALL fcoe-utils.spec etc/config
 
-BASH_COMPLETION_DIR=/etc/bash_completion.d/
+BASH_COMPLETION_DIR=$(DESTDIR)/etc/bash_completion.d/
 
 install-data-hook:
 	if [ ! -f ${DESTDIR}${fcoe_configdir}/config ] ; then \
