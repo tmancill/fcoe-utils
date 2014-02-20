@@ -25,6 +25,7 @@
 #include <stddef.h>
 #include <stdarg.h>
 #include <unistd.h>
+#include <inttypes.h>
 #include <errno.h>
 #include <string.h>
 #include <time.h>
@@ -78,8 +79,7 @@ static const char *cmdname;
 #define FC_WKA_FABRIC_CONTROLLER ((fc_fid_t)0xfffffd)
 #define FC_WKA_DIRECTORY_SERVICE ((fc_fid_t)0xfffffc)
 
-static void
-fp_usage()
+static void fp_usage(void)
 {
 	fprintf(stderr,
 		"Usage: %s [ -fqx ] [ -i <interval> ] [ -c <count> ] -h <hba> "
@@ -480,7 +480,8 @@ fp_find_hba(void)
 	fc_wwn_t wwn = 0;
 	HBA_WWN wwpn;
 	char *endptr;
-	int i, found = 0;
+	unsigned int i;
+	int found = 0;
 
 	/*
 	 * Parse HBA spec. if there is one.
@@ -678,8 +679,7 @@ fp_ns_get_id(uint32_t op, fc_wwn_t wwn, char *response, size_t *resp_len)
 	return 0;
 }
 
-static int
-fp_lookup_target()
+static int fp_lookup_target(void)
 {
 	char response[32];
 	size_t resp_len;
@@ -730,14 +730,13 @@ static uint32_t fp_get_max_data_len(fc_fid_t fcid)
 {
 	HBA_STATUS retval;
 	HBA_PORTATTRIBUTES rport_attrs;
-	int i;
+	unsigned int i;
 	uint32_t dlen = 0;
 
 	if (!hba_handle) {
 		SA_LOG("%s: Invalid handle! HBA_OpenAdapter failed?", fp_dev);
 		goto out;
 	}
-
 
 	/* locate targets */
 	for (i = 0; i < port_attrs.NumberofDiscoveredPorts; i++) {
@@ -784,7 +783,7 @@ out:
  * (default to be FC_MAX_PAYLOAD). For any FCID that is in FC-LS Table 30 WKA,
  * use FP_LEN_MAX for ECHO data, i.e., FC_MAX_PAYLOAD - 4.
  */
-static void fp_check_data_len()
+static void fp_check_data_len(void)
 {
 	fc_fid_t sid;
 	uint32_t slen = 0;
@@ -812,17 +811,17 @@ static void fp_check_data_len()
 	printf("Maximum ECHO data allowed by the Fabric (0x%06x) : %d bytes.\n"
 	       "Maximum ECHO data allowed by the Source (0x%06x) : %d bytes.\n"
 	       "Maximum ECHO data allowed by the Target (0x%06x) : %d bytes.\n"
-	       "Maximum ECHO data requested from user input (-s) : %lu "
+	       "Maximum ECHO data requested from user input (-s) : %" PRIu32 " "
 	       "(default %d) bytes.\n",
 	       FC_WKA_FABRIC_CONTROLLER, flen, sid, slen, fp_did, dlen,
-	       fp_len - FP_LEN_ECHO, FP_LEN_DEF);
+	       (uint32_t)(fp_len - FP_LEN_ECHO), FP_LEN_DEF);
 
 	/* fp_len is the total payload, including 4 bytes for ECHO command */
 	fp_len = MIN(fp_len, plen + FP_LEN_ECHO);
-	printf("Actual FC ELS ECHO data size used : %lu bytes.\n"
+	printf("Actual FC ELS ECHO data size used : %" PRIu32 " bytes.\n"
 	       "Actual FC ELS ECHO payload size used : %d bytes "
-	       "(including %ld bytes ECHO command).\n",
-	       fp_len - FP_LEN_ECHO, fp_len, FP_LEN_ECHO);
+	       "(including %zu bytes ECHO command).\n",
+	       (uint32_t)(fp_len - FP_LEN_ECHO), fp_len, FP_LEN_ECHO);
 }
 
 /*
@@ -995,8 +994,7 @@ static int fp_send_ping(void)
 	return rc;
 }
 
-static void
-fp_signal_handler(int sig)
+static void fp_signal_handler(UNUSED int sig)
 {
 	/*
 	 * Allow graceful termination of the

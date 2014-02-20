@@ -169,7 +169,7 @@ static void fcm_dcbd_rx(void *);
 static void fcm_dcbd_event(char *, size_t);
 static void fcm_dcbd_cmd_resp(char *, cmd_status);
 static void fcm_netif_advance(struct fcm_netif *);
-static void fcm_fcoe_action(struct fcm_netif *, struct fcoe_port *);
+static void fcm_fcoe_action(struct fcoe_port *);
 static void fcp_set_next_action(struct fcoe_port *, enum fcp_action);
 static enum fcoe_status fcm_fcoe_if_action(char *, char *);
 
@@ -178,15 +178,15 @@ static enum fcoe_status fcm_fcoe_if_action(char *, char *);
  * "control" interfaces.
  */
 struct libfcoe_interface_template {
-	enum fcoe_status (*create)(struct fcm_netif *, struct fcoe_port *);
-	enum fcoe_status (*destroy)(struct fcm_netif *, struct fcoe_port *);
-	enum fcoe_status (*enable)(struct fcm_netif *, struct fcoe_port *);
-	enum fcoe_status (*disable)(struct fcm_netif *, struct fcoe_port *);
+	enum fcoe_status (*create)(struct fcoe_port *);
+	enum fcoe_status (*destroy)(struct fcoe_port *);
+	enum fcoe_status (*enable)(struct fcoe_port *);
+	enum fcoe_status (*disable)(struct fcoe_port *);
 };
 
 static const struct libfcoe_interface_template *libfcoe_control;
 
-static enum fcoe_status fcm_module_create(struct fcm_netif *ff, struct fcoe_port *p)
+static enum fcoe_status fcm_module_create(struct fcoe_port *p)
 {
 	enum fcoe_status rc;
 
@@ -216,17 +216,17 @@ static enum fcoe_status fcm_module_create(struct fcm_netif *ff, struct fcoe_port
 	return SUCCESS;
 }
 
-static enum fcoe_status fcm_module_destroy(struct fcm_netif *ff, struct fcoe_port *p)
+static enum fcoe_status fcm_module_destroy(struct fcoe_port *p)
 {
 	return fcm_fcoe_if_action(FCOE_DESTROY, p->ifname);
 }
 
-static enum fcoe_status fcm_module_enable(struct fcm_netif *ff, struct fcoe_port *p)
+static enum fcoe_status fcm_module_enable(struct fcoe_port *p)
 {
 	return fcm_fcoe_if_action(FCOE_ENABLE, p->ifname);
 }
 
-static enum fcoe_status fcm_module_disable(struct fcm_netif *ff, struct fcoe_port *p)
+static enum fcoe_status fcm_module_disable(struct fcoe_port *p)
 {
 	return fcm_fcoe_if_action(FCOE_DISABLE, p->ifname);
 }
@@ -238,13 +238,12 @@ static struct libfcoe_interface_template libfcoe_module_tmpl = {
 	.disable = fcm_module_disable,
 };
 
-static enum fcoe_status fcm_bus_enable(struct fcm_netif *ff,
-				       struct fcoe_port *p)
+static enum fcoe_status fcm_bus_enable(struct fcoe_port *p)
 {
 	return fcm_write_str_to_ctlr_attr(p->ctlr, FCOE_CTLR_ATTR_ENABLED, "1");
 }
 
-static int fcm_bus_configure(struct fcm_netif *ff, struct fcoe_port *p)
+static int fcm_bus_configure(struct fcoe_port *p)
 {
 	int rc;
 
@@ -255,8 +254,7 @@ static int fcm_bus_configure(struct fcm_netif *ff, struct fcoe_port *p)
 	return rc;
 }
 
-static enum fcoe_status fcm_bus_create(struct fcm_netif *ff,
-				       struct fcoe_port *p)
+static enum fcoe_status fcm_bus_create(struct fcoe_port *p)
 {
 	enum fcoe_status rc;
 
@@ -284,21 +282,19 @@ static enum fcoe_status fcm_bus_create(struct fcm_netif *ff,
 		return ENOSYSFS;
 	}
 
-	rc = fcm_bus_configure(ff, p);
+	rc = fcm_bus_configure(p);
 	if (!rc)
-		rc = fcm_bus_enable(ff, p);
+		rc = fcm_bus_enable(p);
 
 	return rc;
 }
 
-static enum fcoe_status fcm_bus_destroy(struct fcm_netif *ff,
-					struct fcoe_port *p)
+static enum fcoe_status fcm_bus_destroy(struct fcoe_port *p)
 {
 	return fcm_write_str_to_sysfs_file(FCOE_BUS_DESTROY, p->ifname);
 }
 
-static enum fcoe_status fcm_bus_disable(struct fcm_netif *ff,
-					struct fcoe_port *p)
+static enum fcoe_status fcm_bus_disable(struct fcoe_port *p)
 {
 	return fcm_write_str_to_ctlr_attr(p->ctlr, FCOE_CTLR_ATTR_ENABLED, "0");
 }
@@ -751,7 +747,7 @@ static void fcm_fc_event_handler(struct fc_nl_event *fc_event)
 	}
 }
 
-static void log_nlmsg_error(struct nlmsghdr *hp, int rlen, const char *str)
+static void log_nlmsg_error(struct nlmsghdr *hp, size_t rlen, const char *str)
 {
 	struct nlmsgerr *ep;
 
@@ -799,7 +795,7 @@ static void fcm_fc_event_log(struct fc_nl_event *fe)
 		{ FCH_EVT_LINK_UNKNOWN,         "link_unknown" },
 		{ FCH_EVT_VENDOR_UNIQUE,        "vendor_unique" },
 	};
-	int i;
+	unsigned int i;
 
 	for (i = 0; i < ARRAY_SIZE(fc_host_event_code_names); i++) {
 		if (fe->event_code == fc_host_event_code_names[i].value) {
@@ -816,13 +812,14 @@ static void fcm_fc_event_log(struct fc_nl_event *fe)
 
 }
 
-static void fcm_fc_event_recv(void *arg)
+static void fcm_fc_event_recv(UNUSED void *arg)
 {
 	struct nlmsghdr *hp;
 	struct fc_nl_event *fc_event;
-	int plen;
-	int rlen;
+	size_t plen;
+	size_t rlen;
 	char *buf;
+	int rc;
 
 	buf = malloc(DEF_RX_BUF_SIZE);
 
@@ -831,16 +828,17 @@ static void fcm_fc_event_recv(void *arg)
 		return;
 	}
 
-	rlen = read(fcm_fc_socket, buf, DEF_RX_BUF_SIZE);
-	if (!rlen)
+	rc = read(fcm_fc_socket, buf, DEF_RX_BUF_SIZE);
+	if (!rc)
 		goto free_buf;
 
-	if (rlen < 0) {
+	if (rc < 0) {
 		FCM_LOG_ERR(errno, "fc read error");
 		goto free_buf;
 	}
 
 	hp = (struct nlmsghdr *)buf;
+	rlen = rc;
 	for (hp = (struct nlmsghdr *)buf; NLMSG_OK(hp, rlen);
 	     hp = NLMSG_NEXT(hp, rlen)) {
 
@@ -855,7 +853,7 @@ static void fcm_fc_event_recv(void *arg)
 		plen = NLMSG_PAYLOAD(hp, 0);
 		fc_event = (struct fc_nl_event *)NLMSG_DATA(hp);
 		if (plen < sizeof(*fc_event)) {
-			FCM_LOG("too short (%d) to be an FC event", rlen);
+			FCM_LOG("too short (%zu) to be an FC event", rlen);
 			break;
 		}
 		fcm_fc_event_log(fc_event);
@@ -929,7 +927,7 @@ static int fcm_link_init(void)
 static struct fcoe_port *
 fcm_port_create(char *ifname, enum clif_flags flags, int cmd);
 
-struct fcoe_port *fcm_new_vlan(int ifindex, int vid, bool vn2vn)
+static struct fcoe_port *fcm_new_vlan(int ifindex, int vid, bool vn2vn)
 {
 	char real_name[IFNAMSIZ];
 	char vlan_name[IFNAMSIZ];
@@ -959,8 +957,8 @@ struct fcoe_port *fcm_new_vlan(int ifindex, int vid, bool vn2vn)
 	return p;
 }
 
-
-int fcm_vlan_disc_handler(struct fiphdr *fh, struct sockaddr_ll *sa, void *arg)
+static int
+fcm_vlan_disc_handler(struct fiphdr *fh, struct sockaddr_ll *sa, void *arg)
 {
 	int vid;
 	unsigned char mac[ETHER_ADDR_LEN];
@@ -1100,7 +1098,7 @@ static void fcm_vlan_dev_real_dev(char *vlan_ifname, char *real_ifname)
  * This function parses the linkinfo rtattr and returns
  * 1 if it is kind vlan otherwise returns 0.
  */
-int fcm_is_linkinfo_vlan(struct rtattr *ap)
+static int fcm_is_linkinfo_vlan(struct rtattr *ap)
 {
 	struct rtattr *info;
 	int len;
@@ -1413,8 +1411,7 @@ static void fcm_dcbd_state_set(struct fcm_netif *ff,
 	ff->response_pending = 0;
 }
 
-static int fip_recv_vlan_req(struct fiphdr *fh, struct sockaddr_ll *ssa,
-			     struct fcoe_port *sp)
+static int fip_recv_vlan_req(struct sockaddr_ll *ssa, struct fcoe_port *sp)
 {
 	struct fip_tlv_vlan *vlan_tlvs = NULL;
 	int vlan_count = 0;
@@ -1473,7 +1470,7 @@ static int fip_vlan_disc_handler(struct fiphdr *fh, struct sockaddr_ll *sa,
 	switch (fh->fip_subcode) {
 	case FIP_VLAN_REQ:
 		FCM_LOG_DBG("received VLAN req, subcode=%d\n", fh->fip_subcode);
-		rc = fip_recv_vlan_req(fh, sa, p);
+		rc = fip_recv_vlan_req(sa, p);
 		break;
 	default:
 		FCM_LOG_DBG("ignored FIP VLAN packet with subcode %d\n",
@@ -1582,7 +1579,7 @@ static int fcoe_vid_from_ifname(const char *ifname)
 	return -1;
 }
 
-void fcm_process_link_msg(struct ifinfomsg *ip, int len, unsigned type)
+static void fcm_process_link_msg(struct ifinfomsg *ip, int len, unsigned type)
 {
 	struct fcoe_port *p;
 	struct rtattr *ap;
@@ -1841,15 +1838,15 @@ static void fcm_process_ieee_msg(struct nlmsghdr *nlh)
 		ieee_state_set(ff, IEEE_DONE);
 }
 
-static void fcm_link_recv(void *arg)
+static void fcm_link_recv(UNUSED void *arg)
 {
 	int rc;
 	char *buf;
 	struct nlmsghdr *hp;
 	struct ifinfomsg *ip;
 	unsigned type;
-	int plen;
-	int rlen;
+	size_t plen;
+	size_t rlen;
 
 	buf = fcm_link_buf;
 	rc = read(fcm_link_socket, buf, fcm_link_buf_size);
@@ -2093,7 +2090,7 @@ static int fcm_dcbd_connect(void)
 	return 1;
 }
 
-static void fcm_dcbd_timeout(void *arg)
+static void fcm_dcbd_timeout(UNUSED void *arg)
 {
 	if (fcm_clif->cl_ping_pending > 0) {
 		fcm_dcbd_request("D");	/* DETACH_CMD */
@@ -2202,7 +2199,7 @@ static void fcm_dcbd_rx(void *arg)
 	rc = read(clif->cl_fd, buf, sizeof(buf) - 1);
 	if (rc < 0)
 		FCM_LOG_ERR(errno, "read");
-	else if ((rc > 0) && (rc < sizeof(buf))) {
+	else if (rc > 0 && rc < (int)sizeof(buf)) {
 		buf[rc] = '\0';
 		len = strlen(buf);
 		ASSERT(len <= rc);
@@ -2640,7 +2637,7 @@ static void fcm_dcbd_get_oper(struct fcm_netif *ff, char *resp, char *cp)
 
 	if (ep) {
 		FCM_LOG_DEV(ff, "Invalid get oper response "
-			    "parse error byte %ld, resp %s", ep - cp, cp);
+			    "parse error byte %td, resp %s", ep - cp, cp);
 		fcm_dcbd_state_set(ff, FCD_ERROR);
 	} else {
 		if (val && fcoe_config.debug)
@@ -2915,7 +2912,7 @@ void fcm_vlan_disc_timeout(void *arg)
 	sa_timer_set(&p->vlan_disc_timer, FCM_VLAN_DISC_TIMEOUT);
 }
 
-int fcm_start_vlan_disc(struct fcoe_port *p)
+static int fcm_start_vlan_disc(struct fcoe_port *p)
 {
 	int s;
 	if (p->fip_socket < 0) {
@@ -2936,7 +2933,7 @@ int fcm_start_vlan_disc(struct fcoe_port *p)
  *         action = 2      Create the FCoE interface
  *         action = 3      Reset the interface
  */
-static void fcm_fcoe_action(struct fcm_netif *ff, struct fcoe_port *p)
+static void fcm_fcoe_action(struct fcoe_port *p)
 {
 	struct fcoe_port *vp;
 	char path[MAX_PATH_LEN];
@@ -2945,7 +2942,7 @@ static void fcm_fcoe_action(struct fcm_netif *ff, struct fcoe_port *p)
 	switch (p->action) {
 	case FCP_CREATE_IF:
 		FCM_LOG_DBG("OP: CREATE %s\n", p->ifname);
-		rc = libfcoe_control->create(ff, p);
+		rc = libfcoe_control->create(p);
 		if (rc) {
 			FCM_LOG_DBG("Failed to create FCoE interface "
 				    "for %s, rc is %d\n", p->ifname, rc);
@@ -2971,12 +2968,12 @@ static void fcm_fcoe_action(struct fcm_netif *ff, struct fcoe_port *p)
 			rc = SUCCESS;
 			break;
 		}
-		rc = libfcoe_control->destroy(ff, p);
+		rc = libfcoe_control->destroy(p);
 		p->fchost[0] = '\0';
 		break;
 	case FCP_ENABLE_IF:
 		FCM_LOG_DBG("OP: ENABLE %s\n", p->ifname);
-		rc = libfcoe_control->enable(ff, p);
+		rc = libfcoe_control->enable(p);
 		break;
 	case FCP_DISABLE_IF:
 		FCM_LOG_DBG("OP: DISABLE %s\n", p->ifname);
@@ -2992,7 +2989,7 @@ static void fcm_fcoe_action(struct fcm_netif *ff, struct fcoe_port *p)
 			}
 			break;
 		}
-		rc = libfcoe_control->disable(ff, p);
+		rc = libfcoe_control->disable(p);
 		break;
 	case FCP_RESET_IF:
 		FCM_LOG_DBG("OP: RESET %s\n", p->ifname);
@@ -3156,7 +3153,7 @@ static void fcm_netif_advance(struct fcm_netif *ff)
  *       as necessary with a CREATE or DESTROY next action.
  * 2.  Process FCoE port list - handle next actions, update states, clean up
  */
-static void fcm_handle_changes()
+static void fcm_handle_changes(void)
 {
 	struct fcm_netif *ff;
 	struct fcoe_port *p;
@@ -3183,7 +3180,7 @@ static void fcm_handle_changes()
 			goto next_port;
 		}
 
-		fcm_fcoe_action(ff, p);
+		fcm_fcoe_action(p);
 
 		fcp_set_next_action(p, FCP_WAIT);
 next_port:
@@ -3463,6 +3460,7 @@ static void fcm_srv_receive(void *arg)
 	char ifname[sizeof(data->ifname) + 1];
 	enum fcoe_status rc = EFAIL;
 	int res, cmd, snum;
+	size_t size;
 
 	snum = srv_info->srv_sock;
 	res = recvfrom(snum, buf, sizeof(buf) - 1,
@@ -3474,15 +3472,16 @@ static void fcm_srv_receive(void *arg)
 	}
 
 	data = (struct clif_data *)buf;
-	if (res < sizeof(*data)) {
-		if (res < sizeof(*data) - sizeof(data->flags)) {
+	size = res;
+	if (size < sizeof(*data)) {
+		if (size < sizeof(*data) - sizeof(data->flags)) {
 			FCM_LOG_ERR(EMSGSIZE,
 				    "Message too short from socket %d", snum);
 			rc = EBADCLIFMSG;
 			goto err;
 		}
 		data->flags = 0;
-	} else if (res > sizeof(*data)) {
+	} else if (size > sizeof(*data)) {
 		FCM_LOG_ERR(EMSGSIZE, "Message too long from socket %d", snum);
 		rc = EBADCLIFMSG;
 		goto err;
@@ -3547,11 +3546,53 @@ err:
 	sendto(snum, rbuf, MSG_RBUF, 0, (struct sockaddr *)&from, fromlen);
 }
 
+static int fcm_systemd_socket(void)
+{
+	char *env, *ptr;
+	unsigned int p, l;
+
+	env = getenv("LISTEN_PID");
+	if (!env)
+		return -1;
+
+	p = strtoul(env, &ptr, 10);
+	if (ptr && ptr == env) {
+		FCM_LOG_DBG("Invalid value '%s' for LISTEN_PID\n", env);
+		return -1;
+	}
+	if ((pid_t)p != getpid()) {
+		FCM_LOG_DBG("Invalid PID '%d' from LISTEN_PID\n", p);
+		return -1;
+	}
+	env = getenv("LISTEN_FDS");
+	if (!env) {
+		FCM_LOG_DBG("LISTEN_FDS is not set\n");
+		return -1;
+	}
+	l = strtoul(env, &ptr, 10);
+	if (ptr && ptr == env) {
+		FCM_LOG_DBG("Invalid value '%s' for LISTEN_FDS\n", env);
+		return -1;
+	}
+	if (l != 1) {
+		FCM_LOG_DBG("LISTEN_FDS specified %d fds\n", l);
+		return -1;
+	}
+	/* systemd returns fds with an offset of '3' */
+	return 3;
+}
+
 static int fcm_srv_create(struct fcm_srv_info *srv_info)
 {
 	socklen_t addrlen;
 	struct sockaddr_un addr;
 	int rc = 0;
+
+	srv_info->srv_sock = fcm_systemd_socket();
+	if (srv_info->srv_sock > 0) {
+		FCM_LOG_DBG("Using systemd socket\n");
+		goto out_done;
+	}
 
 	srv_info->srv_sock = socket(AF_LOCAL, SOCK_DGRAM, 0);
 	if (srv_info->srv_sock < 0) {
@@ -3571,7 +3612,7 @@ static int fcm_srv_create(struct fcm_srv_info *srv_info)
 		rc = errno;
 		goto err_close;
 	}
-
+out_done:
 	sa_select_add_fd(srv_info->srv_sock, fcm_srv_receive,
 			 NULL, NULL, srv_info);
 
@@ -3708,9 +3749,9 @@ int main(int argc, char **argv)
 /*******************************************************
  *         The following are debug routines            *
  *******************************************************/
-static void add_msg_to_buf(char *buf, int maxlen, char *msg, char *prefix)
+static void add_msg_to_buf(char *buf, size_t maxlen, char *msg, char *prefix)
 {
-	int len = strlen(buf);
+	size_t len = strlen(buf);
 
 	if (len + strlen(msg) + strlen(prefix) < maxlen)
 		sprintf(buf+len, "%s%s", prefix, msg);

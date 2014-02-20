@@ -24,6 +24,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <inttypes.h>
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -206,6 +207,7 @@ static u16 gn_id(int bsg, u32 fcid, u16 cmd, u64 *wwn)
 			.ct_fs_subtype	= FC_NS_SUBTYPE,
 			.ct_cmd		= htons(cmd),
 			.ct_mr_size	= htons(sizeof(gn_resp)),
+			.ct_vendor	= 0,
 		},
 		.port_id = hton24(fcid),
 	};
@@ -227,7 +229,7 @@ static int gpn_id(int bsg, u32 fcid)
 	rjt = gn_id(bsg, fcid, FC_NS_GPN_ID, &wwpn);
 	if (rjt)
 		goto fail;
-	print_result("Port Name", "%16.16llx\n", wwpn);
+	print_result("Port Name", "%16.16jx\n", (uintmax_t)wwpn);
 	return 0;
 fail:
 	if (rjt == (u16) ~0)
@@ -248,7 +250,7 @@ static int gnn_id(int bsg, u32 fcid)
 	rjt = gn_id(bsg, fcid, FC_NS_GNN_ID, &wwnn);
 	if (rjt)
 		goto fail;
-	print_result("Node Name", "%16.16llx\n", wwnn);
+	print_result("Node Name", "%16.16jx\n", (uintmax_t)wwnn);
 	return 0;
 fail:
 	if (rjt == (u16) ~0)
@@ -280,6 +282,7 @@ static int gspn_id(int bsg, u32 fcid)
 			.ct_fs_subtype	= FC_NS_SUBTYPE,
 			.ct_cmd		= htons(FC_NS_GSPN_ID),
 			.ct_mr_size	= htons(sizeof(gspn_resp)),
+			.ct_vendor	= 0,
 		},
 		.port_id = hton24(fcid),
 	};
@@ -317,6 +320,7 @@ static int gsnn_nn(int bsg, u64 wwnn)
 			.ct_fs_subtype	= FC_NS_SUBTYPE,
 			.ct_cmd		= htons(FC_NS_GSNN_NN),
 			.ct_mr_size	= htons(sizeof(gsnn_resp)),
+			.ct_vendor	= 0,
 		},
 		.wwnn = htonll(wwnn),
 	};
@@ -362,7 +366,7 @@ static void help(int status)
 		"  --gspn <port id>\n"
 		"  --gsnn <world wide node name>\n"
 		"Options:\n"
-		"  --quiet	print minimal results on success, and no error messages\n"
+		"  --quiet|-q	print minimal results on success, and no error messages\n"
 		"\n"
 		"Port IDs and World Wide Names must be specified in hexadecimal.\n"
 		);
@@ -373,11 +377,12 @@ int main(int argc, char *argv[])
 {
 	char *bsg;
 	int bsg_dev;
-	u32 port_id;
-	u64 wwnn;
+	u32 port_id = 0;
+	u64 wwnn = 0;
 	int rc = 0;
 	enum commands cmd = 0;
 	char c;
+	uintmax_t wwnn_tmp = 0;
 
 	while(1) {
 		c = getopt_long_only(argc, argv, "", options, NULL);
@@ -396,13 +401,17 @@ int main(int argc, char *argv[])
 			if (cmd)
 				help(-1);
 			cmd = c;
-			sscanf(optarg, "%x", &port_id);
+			if (sscanf(optarg, "%x", &port_id) != 1)
+				help(-1);
 			break;
 		case GSNN_NN:
 			if (cmd)
 				help(-1);
 			cmd = c;
-			sscanf(optarg, "%llx", &wwnn);
+			if (sscanf(optarg, "%jx", &wwnn_tmp) == 1)
+				wwnn = (u64)wwnn_tmp;
+			else
+				help(-1);
 			break;
 		}
 	}
