@@ -1,3 +1,4 @@
 0004-libsa-Fix-build-warning-on-sparc.patch
 fix-makefile.patch
 dont-ship-init.patch
+fix-makefile-destdir-mishandling.patch
