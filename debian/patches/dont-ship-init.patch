@@ -1,3 +1,4 @@
+We don't ship upstream's init that is fedora/suse specific
 Index: fcoe-utils/Makefile.am
 ===================================================================
 --- fcoe-utils.orig/Makefile.am	2014-02-20 21:05:21.275801458 +0530

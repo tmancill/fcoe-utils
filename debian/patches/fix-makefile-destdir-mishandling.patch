@@ -1,3 +1,4 @@
+Fix wrong handling of paths with overlapping DESTDIR
 Index: fcoe-utils/Makefile.am
 ===================================================================
 --- fcoe-utils.orig/Makefile.am	2014-02-21 12:51:26.248356286 +0530
