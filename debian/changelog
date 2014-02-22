@@ -1,3 +1,10 @@
+fcoe-utils (1.0.29+git0.09caead4-2) unstable; urgency=medium
+
+  * [2e6112d] Update patch to fix build failures on almost all
+    architectures
+
+ -- Ritesh Raj Sarraf <rsarraf@netapp.com>  Sun, 23 Feb 2014 01:30:14 +0530
+
 fcoe-utils (1.0.29+git0.09caead4-1) unstable; urgency=medium
 
   * [e54bb50] Imported Upstream version 1.0.29
