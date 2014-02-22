@@ -73,26 +73,36 @@ Signed-off-by: Robert Love <robert.w.love@intel.com>
 
 Index: fcoe-utils/lib/sa_log.c
 ===================================================================
---- fcoe-utils.orig/lib/sa_log.c	2014-02-20 20:37:27.639734137 +0530
-+++ fcoe-utils/lib/sa_log.c	2014-02-20 20:37:27.635734137 +0530
-@@ -169,8 +169,8 @@
+--- fcoe-utils.orig/lib/sa_log.c	2014-02-23 01:26:32.658308143 +0530
++++ fcoe-utils/lib/sa_log.c	2014-02-23 01:28:01.802311729 +0530
+@@ -18,6 +18,9 @@
+  */
+ 
+ #define _GNU_SOURCE		/* for GNU definition of strerror_r */
++
++#include <inttypes.h>
++
+ #include "fcoemon_utils.h"
+ #include "net_types.h"
+ #include "fc_types.h"
+@@ -169,8 +172,8 @@
  	if (sa_log_flags & SA_LOGF_TIME) {
  		ctime_r(&t.tv_sec, ctime_buf);
  		ctime_buf[11 + 8] = '\0';   /* trim ctime after seconds */
 -		fprintf(stderr, "%s.%3.3ld ",
 -			ctime_buf + 11, t.tv_usec / 1000);
-+		fprintf(stderr, "%s.%3.3ld",
++		fprintf(stderr, "%s.%3.3" PRIu64 "",
 +			ctime_buf + 11, (u_int64_t) t.tv_usec / 1000);
  	}
  	if (sa_log_flags & SA_LOGF_DELTA) {
  		if (tlast.tv_sec == 0)
-@@ -179,8 +179,8 @@
+@@ -179,8 +182,8 @@
  		tlast = t;
  		if (diff.tv_sec != 0 ||
  		    diff.tv_usec >= sa_log_time_delta_min * 1000)
 -			fprintf(stderr, "%4ld.%3.3ld ",
 -				diff.tv_sec, diff.tv_usec / 1000);
-+			fprintf(stderr, "%4ld.%3.3ld",
++			fprintf(stderr, "%4ld.%3.3" PRIu64 "",
 +				diff.tv_sec, (u_int64_t)diff.tv_usec / 1000);
  		else
  			fprintf(stderr, "%8s ", "");
