@@ -19,6 +19,9 @@ override_dh_installinit:
 	dh_installinit -u 'start 45 S . stop 81 0 1 6 .' --no-start
 
 override_dh_auto_clean:
+
+	[ ! -f Makefile ] || make clean;
+
 	# Remove the broken links
 	rm -f compile depcomp install-sh missing ar-lib Makefile.in aclocal.m4 configure Makefile config.* *.spec
 	rm -f include/fcoe_utils_version.h
