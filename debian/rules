@@ -20,5 +20,6 @@ override_dh_installinit:
 
 override_dh_auto_clean:
 	# Remove the broken links
-	rm -f compile depcomp install-sh missing
+	rm -f compile depcomp install-sh missing ar-lib Makefile.in aclocal.m4 configure Makefile config.* *.spec
+	rm -f include/fcoe_utils_version.h
 	dh_auto_clean
