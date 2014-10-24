@@ -1,3 +1,11 @@
+fcoe-utils (1.0.29+git20140505-1) unstable; urgency=low
+
+  * Added myself as a maintainer of this package.
+  * Updated to include some recent updates from the git repository.
+  * Updated to policy version 3.9.6; no changes required.
+
+ -- Jacob Luna Lundberg <jacob@gnifty.net>  Thu, 23 Oct 2014 12:30:48 -0700
+
 fcoe-utils (1.0.29+git0.09caead4-2) unstable; urgency=medium
 
   * [2e6112d] Update patch to fix build failures on almost all
