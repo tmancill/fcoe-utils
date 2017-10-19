@@ -1,0 +1,37 @@
+Description: Fix systemd file to work with Debian
+ Various warnings reported by lintian.
+Author: Valentin Vidic <Valentin.Vidic@CARNet.hr>
+Last-Update: 2017-10-19
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- a/etc/systemd/fcoe.service
++++ b/etc/systemd/fcoe.service
+@@ -1,14 +1,13 @@
+ [Unit]
+ Description=Open-FCoE initiator daemon
+-After=syslog.target network.target
++After=network.target lldpad.service
+ 
+ [Service]
+ Type=simple
+-EnvironmentFile=/etc/sysconfig/fcoe
++EnvironmentFile=/etc/fcoe/config
+ ExecStartPre=/sbin/modprobe -qa $SUPPORTED_DRIVERS
+-ExecStart=/usr/sbin/fcoemon $FCOEMON_OPTS
++ExecStart=/usr/sbin/fcoemon --foreground --syslog $FCOEMON_OPTS
+ 
+ [Install]
+ WantedBy=multi-user.target
+-Also=lldpad.socket
+ Also=fcoemon.socket
+--- a/etc/systemd/fcoemon.socket
++++ b/etc/systemd/fcoemon.socket
+@@ -1,6 +1,7 @@
+ [Socket]
+-ListenDatagram=@/com/intel/fcoemon
++ListenDatagram=@fcm_clif
+ PassCredentials=true
++Service=fcoe-utils.service
+ 
+ [Install]
+ WantedBy=sockets.target

@@ -1,3 +1,4 @@
 libsa-Fix-build-warning-on-sparc.patch
 dont-ship-init.patch
 fix-gcc-warnings.patch
+fix-systemd-service.patch
