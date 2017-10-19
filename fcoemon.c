@@ -60,7 +60,7 @@
 #include "fcoemon.h"
 #include "fcoe_clif.h"
 #include "fcoe_utils.h"
-#include "hbaapi.h"
+#include "sysfs_hba.h"
 #include "strarr.h"
 
 #include "fip.h"
@@ -557,6 +557,9 @@ static int fcm_read_config_files(void)
 		if (!strncasecmp(val, "yes", 3) && rc == 1)
 			next->dcb_required = 1;
 
+		if (next->dcb_required == 1 && fcoe_config.dcb_init == 0)
+			fcoe_config.dcb_init = 1;
+
 		/* AUTO_VLAN */
 		rc = fcm_read_config_variable(file, val, sizeof(val),
 					      fp, CFG_IF_VAR_AUTOVLAN);
@@ -800,12 +803,12 @@ static void fcm_fc_event_log(struct fc_nl_event *fe)
 	for (i = 0; i < ARRAY_SIZE(fc_host_event_code_names); i++) {
 		if (fe->event_code == fc_host_event_code_names[i].value) {
 			/* only do u32 data even len is not, e.g. vendor */
-			FCM_LOG("FC_HOST_EVENT %d at %" PRIu64 " secs on host%d:"
-				"code %d=%s datalen %d data=%d\n",
-				fe->event_num, fe->seconds,
-				fe->host_no, fe->event_code,
-				fc_host_event_code_names[i].name,
-				fe->event_datalen, fe->event_data);
+			FCM_LOG_DBG("FC_HOST_EVENT %d at %" PRIu64 " secs on "
+				    "host%d code %d=%s datalen %d data=%d\n",
+				    fe->event_num, fe->seconds,
+				    fe->host_no, fe->event_code,
+				    fc_host_event_code_names[i].name,
+				    fe->event_datalen, fe->event_data);
 			break;
 		}
 	}
@@ -1341,6 +1344,7 @@ STR_ARR(ieee_states, "Unknown", "Out of range",
 	[IEEE_INIT] = "IEEE_INIT",
 	[IEEE_GET_STATE] = "IEEE_GET_STATE",
 	[IEEE_DONE] = "IEEE_DONE",
+	[IEEE_ACTIVE] = "IEEE_ACTIVE",
 );
 
 static void
@@ -3054,20 +3058,14 @@ static void fcm_netif_ieee_advance(struct fcm_netif *ff)
 		break;
 	case IEEE_DONE:
 		action = validate_ieee_info(ff);
-		switch (action) {
-		case FCP_DESTROY_IF:
-		case FCP_ENABLE_IF:
-		case FCP_ACTIVATE_IF:
+		if (action == FCP_ACTIVATE_IF) {
 			fcp_action_set(ff->ifname, action);
-			break;
-		case FCP_DISABLE_IF:
-		case FCP_ERROR:
-			fcp_action_set(ff->ifname, FCP_DISABLE_IF);
-			break;
-		case FCP_WAIT:
-		default:
-			break;
+			ieee_state_set(ff, IEEE_ACTIVE);
 		}
+		break;
+	case IEEE_ACTIVE:
+		/* TBD enable and disable if needed in IEEE mode */
+		break;
 	default:
 		break;
 	}
@@ -3719,11 +3717,6 @@ int main(int argc, char **argv)
 	if (argc != optind)
 		fcm_usage();
 
-	if (!fcm_fg && daemon(0, !fcoe_config.use_syslog)) {
-		FCM_LOG("Starting daemon failed");
-		exit(EXIT_FAILURE);
-	}
-
 	umask(0);
 
 	/*
@@ -3770,22 +3763,42 @@ int main(int argc, char **argv)
 	}
 
 	fcm_fcoe_init();
-	fcm_fc_events_init();
-	fcm_link_init();	/* NETLINK_ROUTE protocol */
-	fcm_dcbd_init();
-	fcm_srv_create(&srv_info);
+	rc = fcm_fc_events_init();
+	if (rc != 0)
+		exit(1);
+
+	rc = fcm_link_init();	/* NETLINK_ROUTE protocol */
+	if (rc != 0)
+		goto err_cleanup;
+
+	if (fcoe_config.dcb_init)
+		fcm_dcbd_init();
+
+	rc = fcm_srv_create(&srv_info);
+	if (rc != 0)
+		goto err_cleanup;
+
+	if (!fcm_fg && daemon(0, !fcoe_config.use_syslog)) {
+		FCM_LOG("Starting daemon failed");
+		goto err_cleanup;
+	}
+
 	sa_select_set_callback(fcm_handle_changes);
 
 	rc = sa_select_loop();
 	if (rc < 0) {
 		FCM_LOG_ERR(rc, "select error\n");
-		exit(EXIT_FAILURE);
+		goto err_cleanup;
 	}
 	fcm_dcbd_shutdown();
 	fcm_srv_destroy(&srv_info);
 	if (rc == SIGHUP)
 		fcm_cleanup();
 	return 0;
+
+err_cleanup:
+	fcm_cleanup();
+	exit(1);
 }
 
 /*******************************************************

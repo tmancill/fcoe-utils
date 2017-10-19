@@ -168,9 +168,10 @@ static struct fcf *lookup_fcf(struct fcf_list_head *head, int ifindex,
 	struct fcf *fcf;
 
 	TAILQ_FOREACH(fcf, head, list_node)
-		if ((ifindex == fcf->ifindex) && (vlan == fcf->vlan) &&
-		    (memcmp(mac, fcf->mac_addr, ETHER_ADDR_LEN) == 0))
-			return fcf;
+		if ((ifindex == fcf->ifindex) && (vlan == fcf->vlan)) {
+			if ((!mac) || (memcmp(mac, fcf->mac_addr, ETHER_ADDR_LEN) == 0))
+				return fcf;
+		}
 	return NULL;
 }
 
@@ -447,19 +448,6 @@ static void rtnl_recv_newlink(struct nlmsghdr *nh)
 	memcpy(iff->mac_addr, RTA_DATA(ifla[IFLA_ADDRESS]), ETHER_ADDR_LEN);
 	strncpy(iff->ifname, RTA_DATA(ifla[IFLA_IFNAME]), IFNAMSIZ);
 
-	if (!config.automode) {
-		int i, iff_selected = 0;
-
-		for (i = 0; i < config.namec; i++) {
-			if (!strcmp(iff->ifname, config.namev[i]))
-				iff_selected = 1;
-		}
-		if (!iff_selected) {
-			FIP_LOG_DBG("ignoring if %s\n", iff->ifname);
-			free(iff);
-			return;
-		}
-	}
 	if (ifla[IFLA_LINKINFO]) {
 		parse_linkinfo(linkinfo, ifla[IFLA_LINKINFO]);
 		/* Track VLAN devices separately */
@@ -629,17 +617,18 @@ create_and_start_vlan(struct fcf *fcf, bool vn2vn)
 		if (vlan) {
 			FIP_LOG_DBG("VLAN %s.%d already exists as %s\n",
 				    real_dev->ifname, fcf->vlan, vlan->ifname);
-			return 0;
-		}
-		snprintf(vlan_name, IFNAMSIZ, "%s.%d%s",
-			 real_dev->ifname, fcf->vlan, config.suffix);
-		rc = vlan_create(fcf->ifindex, fcf->vlan, vlan_name);
-		if (rc < 0) {
-			printf("Failed to create VLAN device %s\n\t%s\n",
-			       vlan_name, strerror(-rc));
+			rc = 0;
+		} else {
+			snprintf(vlan_name, IFNAMSIZ, "%s.%d%s",
+				 real_dev->ifname, fcf->vlan, config.suffix);
+			rc = vlan_create(fcf->ifindex, fcf->vlan, vlan_name);
+			if (rc < 0)
+				printf("Failed to create VLAN device %s\n\t%s\n",
+				       vlan_name, strerror(-rc));
+			else
+				printf("Created VLAN device %s\n", vlan_name);
 			return rc;
 		}
-		printf("Created VLAN device %s\n", vlan_name);
 	}
 	if (!config.start)
 		return rc;
@@ -852,9 +841,21 @@ static int send_vlan_requests(void)
 {
 	struct iff *iff;
 	int skipped = 0;
+	int i;
 
-	TAILQ_FOREACH(iff, &interfaces, list_node) {
-		skipped += probe_fip_interface(iff);
+	if (config.automode) {
+		TAILQ_FOREACH(iff, &interfaces, list_node) {
+			skipped += probe_fip_interface(iff);
+		}
+	} else {
+		for (i = 0; i < config.namec; i++) {
+			iff = lookup_iff(0, config.namev[i]);
+			if (!iff) {
+				skipped++;
+				continue;
+			}
+			skipped += probe_fip_interface(iff);
+		}
 	}
 	return skipped;
 }
@@ -978,7 +979,7 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	ns = rtnl_socket();
+	ns = rtnl_socket(RTMGRP_LINK);
 	if (ns < 0) {
 		rc = ns;
 		goto ns_err;
