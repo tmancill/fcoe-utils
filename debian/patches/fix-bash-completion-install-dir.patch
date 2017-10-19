@@ -1,0 +1,17 @@
+Description: Update bash completion install dir
+ Fixes warning reported by lintian.
+Author: Valentin Vidic <Valentin.Vidic@CARNet.hr>
+Last-Update: 2017-10-19
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -61,7 +61,7 @@
+ 
+ dist_noinst_DATA = README COPYING INSTALL CONFIGURE QUICKSTART fcoe-utils.spec etc/config
+ 
+-bashcompletiondir = $(sysconfdir)/bash_completion.d
++bashcompletiondir = $(prefix)/share/bash-completion/completions
+ dist_bashcompletion_DATA = contrib/bash_completion/fcoeadm contrib/bash_completion/fcoemon
+ 
+ install-data-hook:
