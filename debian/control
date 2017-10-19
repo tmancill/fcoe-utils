@@ -2,7 +2,7 @@ Source: fcoe-utils
 Section: misc
 Priority: extra
 Maintainer: Debian FCoE Maintainers <pkg-fcoe-general@lists.alioth.debian.org>
-Uploaders: Liang Guo <bluestonechina@gmail.com>, Jacob Luna Lundberg <jacob@gnifty.net>
+Uploaders: Liang Guo <bluestonechina@gmail.com>, Jacob Luna Lundberg <jacob@gnifty.net>, Valentin Vidic <Valentin.Vidic@CARNet.hr>
 Build-Depends: debhelper (>= 7), autotools-dev, lldpad-dev (>= 0.9.43), libpciaccess-dev, pkg-config, autoconf, automake, dpkg-dev (>= 1.16.1~)
 Standards-Version: 3.9.6
 Vcs-Git: git://anonscm.debian.org/pkg-fcoe/fcoe-utils.git
