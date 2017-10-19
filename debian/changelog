@@ -1,3 +1,31 @@
+fcoe-utils (1.0.31+git20160622.5dfd3e4-1) unstable; urgency=medium
+
+  [ Jacob Luna Lundberg ]
+  * Imported Upstream version 1.0.29+git20140505
+
+  [ Valentin Vidic ]
+  * New upstream version 1.0.31+git20160622.5dfd3e4
+  * Add libpciaccess-dev to Build-Depends
+  * Add myself to Uploaders
+  * Update Standards-Version
+  * Drop Build-Depends on autotools-dev
+  * Replace Priority extra with optional
+  * Add depends on lsb-base
+  * Drop unused directories
+  * Rename systemd service to match init script name
+  * Add lldpad to Recommends
+  * Drop unused patches
+  * Refresh patches
+  * Add patch to fix gcc build errors
+  * Add patch to fix systemd service file
+  * Add patch to fix bash completion dir
+  * Use dh_missing to check for installed files
+  * Add cleanup for lib/.dirstamp
+  * Add systemd to Build-Depends to get service files installed
+  * Disable non-default start/stop init actions
+
+ -- Valentin Vidic <Valentin.Vidic@CARNet.hr>  Thu, 19 Oct 2017 19:55:44 +0200
+
 fcoe-utils (1.0.29+git20140505-1) unstable; urgency=low
 
   * Added myself as a maintainer of this package.
