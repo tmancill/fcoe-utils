@@ -1,0 +1,48 @@
+Description: Fix GCC 7 warnings breaking the build
+ Adjusts buffer sizes to fit the arguments.
+Author: Valentin Vidic <Valentin.Vidic@CARNet.hr>
+Last-Update: 2017-10-19
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- a/libopenfcoe.c
++++ b/libopenfcoe.c
+@@ -72,7 +72,8 @@
+ 
+ 	/* Save the path */
+ 	snprintf(fcf->path, sizeof(fcf->path),
+-		 "%s/%s", ctlr->path, dp->d_name);
++		 "%.*s/%s", (int)(sizeof(ctlr->path) - sizeof(dp->d_name) - 1),
++		 ctlr->path, dp->d_name);
+ 
+ 	/* Use the index from the logical enumeration */
+ 	fcf->index = atoi(dp->d_name + sizeof("fcf_") - 1);
+@@ -198,7 +199,8 @@
+ 	sa_sys_read_line(ctlr->path, "mode", buf, sizeof(buf));
+ 	sa_enum_encode(fip_conn_type_table, buf, &ctlr->mode);
+ 
+-	snprintf(lesb_path, sizeof(lesb_path), "%s/lesb/", ctlr->path);
++	snprintf(lesb_path, sizeof(lesb_path), "%.*s/lesb/",
++		(int)(sizeof(ctlr->path) - sizeof("/lesb/")), ctlr->path);
+ 
+ 	/* Get LESB statistics */
+ 	sa_sys_read_u32(lesb_path, "link_fail",
+--- a/fipvlan.c
++++ b/fipvlan.c
+@@ -594,7 +594,7 @@
+ create_and_start_vlan(struct fcf *fcf, bool vn2vn)
+ {
+ 	struct iff *real_dev, *vlan;
+-	char vlan_name[IFNAMSIZ];
++	char vlan_name[MAX_STR_LEN];
+ 	int rc;
+ 
+ 	real_dev = lookup_iff(fcf->ifindex, NULL);
+@@ -619,7 +619,7 @@
+ 				    real_dev->ifname, fcf->vlan, vlan->ifname);
+ 			rc = 0;
+ 		} else {
+-			snprintf(vlan_name, IFNAMSIZ, "%s.%d%s",
++			snprintf(vlan_name, sizeof(vlan_name), "%s.%d%s",
+ 				 real_dev->ifname, fcf->vlan, config.suffix);
+ 			rc = vlan_create(fcf->ifindex, fcf->vlan, vlan_name);
+ 			if (rc < 0)
