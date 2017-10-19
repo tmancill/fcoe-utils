@@ -67,6 +67,7 @@ struct {
 	bool start;
 	bool vn2vn;
 	bool debug;
+	bool link_up;
 	int link_retry;
 	char suffix[256];
 } config = {
@@ -76,6 +77,7 @@ struct {
 	.create = false,
 	.vn2vn = false,
 	.debug = false,
+	.link_up = false,
 	.link_retry = 20,
 	.suffix = "",
 };
@@ -139,6 +141,7 @@ struct iff {
 	bool req_sent;
 	bool resp_recv;
 	bool fip_ready;
+	bool fcoe_started;
 	TAILQ_ENTRY(iff) list_node;
 	struct iff_list_head vlans;
 };
@@ -157,15 +160,18 @@ struct fcf {
 struct fcf_list_head fcfs = TAILQ_HEAD_INITIALIZER(fcfs);
 static struct fcf_list_head vn2vns = TAILQ_HEAD_INITIALIZER(vn2vns);
 
+static int create_and_start_vlan(struct fcf *fcf, bool vn2vn);
+
 static struct fcf *lookup_fcf(struct fcf_list_head *head, int ifindex,
 			      uint16_t vlan, unsigned char *mac)
 {
 	struct fcf *fcf;
 
 	TAILQ_FOREACH(fcf, head, list_node)
-		if ((ifindex == fcf->ifindex) && (vlan == fcf->vlan) &&
-		    (memcmp(mac, fcf->mac_addr, ETHER_ADDR_LEN) == 0))
-			return fcf;
+		if ((ifindex == fcf->ifindex) && (vlan == fcf->vlan)) {
+			if ((!mac) || (memcmp(mac, fcf->mac_addr, ETHER_ADDR_LEN) == 0))
+				return fcf;
+		}
 	return NULL;
 }
 
@@ -316,6 +322,9 @@ static int fip_recv_vlan_note(struct fiphdr *fh, int ifindex, bool vn2vn)
 		fcf->vlan = vlan;
 		memcpy(fcf->mac_addr, tlvs.mac->mac_addr, ETHER_ADDR_LEN);
 		TAILQ_INSERT_TAIL(head, fcf, list_node);
+		if (!config.create)
+			continue;
+		create_and_start_vlan(fcf, vn2vn);
 	}
 
 	return 0;
@@ -362,7 +371,13 @@ static void rtnl_recv_newlink(struct nlmsghdr *nh)
 	struct rtattr *linkinfo[__IFLA_INFO_MAX];
 	struct rtattr *vlan[__IFLA_VLAN_MAX];
 	struct iff *iff, *real_dev;
+	struct fcf_list_head *head;
 	bool running;
+
+	if (config.vn2vn)
+		head = &vn2vns;
+	else
+		head = &fcfs;
 
 	FIP_LOG_DBG("RTM_NEWLINK: ifindex %d, type %d, flags %x",
 		    ifm->ifi_index, ifm->ifi_type, ifm->ifi_flags);
@@ -378,12 +393,38 @@ static void rtnl_recv_newlink(struct nlmsghdr *nh)
 	running = !!(ifm->ifi_flags & (IFF_RUNNING | IFF_SLAVE));
 	iff = lookup_iff(ifm->ifi_index, NULL);
 	if (iff) {
+		int ifindex;
+
 		/* already tracking, update operstate and return */
 		iff->running = running;
-		if (iff->running)
-			pfd_add(iff->ps);
-		else
+		if (!iff->running) {
 			pfd_remove(iff->ps);
+			return;
+		}
+		pfd_add(iff->ps);
+		if (!config.start)
+			return;
+
+		FIP_LOG_DBG("Checking for FCoE on %sif %d",
+			    iff->is_vlan ? "VLAN " : "", iff->ifindex);
+		if (iff->is_vlan) {
+			real_dev = find_vlan_real_dev(iff);
+			if (!real_dev) {
+				FIP_LOG_ERR(ENODEV, "VLAN %d without a parent",
+					    iff->ifindex);
+				return;
+			}
+			ifindex = real_dev->ifindex;
+		} else
+			ifindex = iff->ifindex;
+
+		if (!iff->fcoe_started &&
+		    lookup_fcf(head, ifindex, iff->vid, NULL)) {
+			printf("Starting FCoE on interface %s\n",
+			       iff->ifname);
+			fcoe_instance_start(iff->ifname);
+			iff->fcoe_started = true;
+		}
 		return;
 	}
 
@@ -416,11 +457,16 @@ static void rtnl_recv_newlink(struct nlmsghdr *nh)
 			parse_vlaninfo(vlan, linkinfo[IFLA_INFO_DATA]);
 			iff->vid = *(int *)RTA_DATA(vlan[IFLA_VLAN_ID]);
 			real_dev = find_vlan_real_dev(iff);
-			if (real_dev)
-				TAILQ_INSERT_TAIL(&real_dev->vlans,
-						  iff, list_node);
-			else
+			if (!real_dev) {
 				free(iff);
+				return;
+			}
+			TAILQ_INSERT_TAIL(&real_dev->vlans, iff, list_node);
+			if (!iff->running) {
+				FIP_LOG_DBG("vlan if %d not running, "
+					    "starting", iff->ifindex);
+				rtnl_set_iff_up(iff->ifindex, NULL);
+			}
 			return;
 		}
 		/* ignore bonding interfaces */
@@ -435,7 +481,7 @@ static void rtnl_recv_newlink(struct nlmsghdr *nh)
 
 /* command line arguments */
 
-#define GETOPT_STR "acdf:l:m:shv"
+#define GETOPT_STR "acdf:l:m:suhv"
 
 static const struct option long_options[] = {
 	{ "auto", no_argument, NULL, 'a' },
@@ -445,6 +491,7 @@ static const struct option long_options[] = {
 	{ "suffix", required_argument, NULL, 'f' },
 	{ "link-retry", required_argument, NULL, 'l' },
 	{ "mode", required_argument, NULL, 'm' },
+	{ "link-up", required_argument, NULL, 'u' },
 	{ "help", no_argument, NULL, 'h' },
 	{ "version", no_argument, NULL, 'v' },
 	{ NULL, 0, NULL, 0 }
@@ -462,6 +509,7 @@ static void help(int status)
 		"  -f, --suffix		Append the suffix to VLAN interface name\n"
 		"  -l, --link-retry     Number of retries for link up\n"
 		"  -m, --mode           Link mode, either fabric or vn2vn\n"
+		"  -u, --link-up        Leave link up after FIP response\n"
 		"  -h, --help           Display this help and exit\n"
 		"  -v, --version        Display version information and exit\n",
 		exe);
@@ -471,7 +519,7 @@ static void help(int status)
 
 static void parse_cmdline(int argc, char **argv)
 {
-	char c;
+	signed char c;
 
 	while (1) {
 		c = getopt_long(argc, argv, GETOPT_STR, long_options, NULL);
@@ -508,6 +556,9 @@ static void parse_cmdline(int argc, char **argv)
 				exit(1);
 			}
 			break;
+		case 'u':
+			config.link_up = true;
+			break;
 		case 'h':
 			help(0);
 			break;
@@ -539,59 +590,61 @@ static int rtnl_listener_handler(struct nlmsghdr *nh, UNUSED void *arg)
 	return -1;
 }
 
-static void
-create_missing_vlans_list(struct fcf_list_head *list, const char *label)
+static int
+create_and_start_vlan(struct fcf *fcf, bool vn2vn)
 {
-	struct fcf *fcf;
 	struct iff *real_dev, *vlan;
 	char vlan_name[IFNAMSIZ];
 	int rc;
 
-	if (!config.create)
-		return;
-
-	TAILQ_FOREACH(fcf, list, list_node) {
-		real_dev = lookup_iff(fcf->ifindex, NULL);
-		if (!real_dev) {
-			FIP_LOG_ERR(ENODEV,
-				    "lost device %d with discovered %s?\n",
-				    fcf->ifindex, label);
-			continue;
-		}
-		if (!fcf->vlan) {
-			/*
-			 * If the vlan notification has VLAN id 0,
-			 * skip creating vlan interface, and FCoE is
-			 * started on the physical interface itself.
-			 */
-			FIP_LOG_DBG("VLAN id is 0 for %s\n", real_dev->ifname);
-			continue;
-		}
+	real_dev = lookup_iff(fcf->ifindex, NULL);
+	if (!real_dev) {
+		FIP_LOG_ERR(ENODEV,
+			    "lost device %d with discovered %s?\n",
+			    fcf->ifindex, vn2vn ? "VN2VN" : "FCF");
+		return -ENXIO;
+	}
+	if (!fcf->vlan) {
+		/*
+		 * If the vlan notification has VLAN id 0,
+		 * skip creating vlan interface, and FCoE is
+		 * started on the physical interface itself.
+		 */
+		FIP_LOG_DBG("VLAN id is 0 for %s\n", real_dev->ifname);
+		vlan = real_dev;
+	} else {
 		vlan = lookup_vlan(fcf->ifindex, fcf->vlan);
 		if (vlan) {
 			FIP_LOG_DBG("VLAN %s.%d already exists as %s\n",
 				    real_dev->ifname, fcf->vlan, vlan->ifname);
-			continue;
+			rc = 0;
+		} else {
+			snprintf(vlan_name, IFNAMSIZ, "%s.%d%s",
+				 real_dev->ifname, fcf->vlan, config.suffix);
+			rc = vlan_create(fcf->ifindex, fcf->vlan, vlan_name);
+			if (rc < 0)
+				printf("Failed to create VLAN device %s\n\t%s\n",
+				       vlan_name, strerror(-rc));
+			else
+				printf("Created VLAN device %s\n", vlan_name);
+			return rc;
 		}
-		snprintf(vlan_name, IFNAMSIZ, "%s.%d%s",
-			 real_dev->ifname, fcf->vlan, config.suffix);
-		rc = vlan_create(fcf->ifindex, fcf->vlan, vlan_name);
-		if (rc < 0)
-			printf("Failed to create VLAN device %s\n\t%s\n",
-			       vlan_name, strerror(-rc));
-		else
-			printf("Created VLAN device %s\n", vlan_name);
-		rtnl_set_iff_up(0, vlan_name);
 	}
-	printf("\n");
-}
+	if (!config.start)
+		return rc;
 
-static void create_missing_vlans(void)
-{
-	if (!TAILQ_EMPTY(&fcfs))
-		create_missing_vlans_list(&fcfs, "FCF");
-	if (!TAILQ_EMPTY(&vn2vns))
-		create_missing_vlans_list(&vn2vns, "VN2VN");
+	if (!vlan->running) {
+		FIP_LOG_DBG("%s if %d not running, starting",
+			    vlan == real_dev ? "real" : "vlan",
+			    vlan->ifindex);
+		rtnl_set_iff_up(vlan->ifindex, NULL);
+	} else if (!vlan->fcoe_started) {
+		printf("Starting FCoE on interface %s\n",
+		       vlan->ifname);
+		fcoe_instance_start(vlan->ifname);
+		vlan->fcoe_started = true;
+	}
+	return rc;
 }
 
 static int fcoe_mod_instance_start(const char *ifname)
@@ -666,34 +719,6 @@ static void determine_libfcoe_interface(void)
 	}
 }
 
-static void start_fcoe(void)
-{
-	struct fcf_list_head *head;
-	struct fcf *fcf;
-	struct iff *iff;
-
-	if (config.vn2vn)
-		head = &vn2vns;
-	else
-		head = &fcfs;
-
-	TAILQ_FOREACH(fcf, head, list_node) {
-		if (fcf->vlan)
-			iff = lookup_vlan(fcf->ifindex, fcf->vlan);
-		else
-			iff = lookup_iff(fcf->ifindex, NULL);
-		if (!iff) {
-			FIP_LOG_ERR(ENODEV,
-				    "Cannot start FCoE on VLAN %d, ifindex %d, "
-				    "because the VLAN device does not exist",
-				    fcf->vlan, fcf->ifindex);
-			continue;
-		}
-		printf("Starting FCoE on interface %s\n", iff->ifname);
-		fcoe_instance_start(iff->ifname);
-	}
-}
-
 static void print_list(struct fcf_list_head *list, const char *label)
 {
 	struct iff *iff;
@@ -749,9 +774,15 @@ static void recv_loop(int timeout)
 			rtnl_recv(pfd[0].fd, rtnl_listener_handler, NULL);
 		/* everything else should be FIP packet sockets */
 		for (i = 1; i < pfd_len; i++) {
-			if (pfd[i].revents & POLLIN)
-				fip_recv(pfd[i].fd, fip_vlan_handler, NULL);
+			if (pfd[i].revents & POLLIN) {
+				rc = fip_recv(pfd[i].fd, fip_vlan_handler,
+					      NULL);
+				if (rc < 0)
+					break;
+			}
 		}
+		if (i < pfd_len)
+			break;
 	}
 }
 
@@ -763,7 +794,7 @@ static void find_interfaces(int ns)
 
 static int probe_fip_interface(struct iff *iff)
 {
-	int origdev = 1;
+	int origdev = 1, rc;
 
 	if (iff->resp_recv)
 		return 0;
@@ -785,6 +816,10 @@ static int probe_fip_interface(struct iff *iff)
 
 	if (!iff->fip_ready) {
 		iff->ps = fip_socket(iff->ifindex, FIP_NONE);
+		if (iff->ps < 0) {
+			FIP_LOG_DBG("if %d not ready\n", iff->ifindex);
+			return 0;
+		}
 		setsockopt(iff->ps, SOL_PACKET, PACKET_ORIGDEV,
 			   &origdev, sizeof(origdev));
 		pfd_add(iff->ps);
@@ -792,20 +827,21 @@ static int probe_fip_interface(struct iff *iff)
 	}
 
 	if (config.vn2vn)
-		fip_send_vlan_request(iff->ps, iff->ifindex, iff->mac_addr,
-				      FIP_ALL_VN2VN);
+		rc = fip_send_vlan_request(iff->ps, iff->ifindex,
+					   iff->mac_addr, FIP_ALL_VN2VN);
 	else
-		fip_send_vlan_request(iff->ps, iff->ifindex, iff->mac_addr,
-				      FIP_ALL_FCF);
-	iff->req_sent = true;
-	return 0;
+		rc = fip_send_vlan_request(iff->ps, iff->ifindex,
+					   iff->mac_addr, FIP_ALL_FCF);
+	if (rc == 0)
+		iff->req_sent = true;
+	return rc == 0 ? 0 : 1;
 }
 
 static int send_vlan_requests(void)
 {
 	struct iff *iff;
-	int i;
 	int skipped = 0;
+	int i;
 
 	if (config.automode) {
 		TAILQ_FOREACH(iff, &interfaces, list_node) {
@@ -829,51 +865,70 @@ static void do_vlan_discovery(void)
 	struct iff *iff;
 	int retry_count = 0;
 	int skip_retry_count = 0;
-	int skipped = 0;
+	int skipped = 0, retry_iff = 0;
 retry:
 	skipped += send_vlan_requests();
 	if (skipped && skip_retry_count++ < config.link_retry) {
-		FIP_LOG_DBG("waiting for IFF_RUNNING [%d]\n", skip_retry_count);
+		FIP_LOG_DBG("waiting for IFF_RUNNING [%d/%d]\n",
+			    skip_retry_count, config.link_retry);
 		recv_loop(500);
 		skipped = 0;
 		retry_count = 0;
 		goto retry;
 	}
 	recv_loop(200);
-	TAILQ_FOREACH(iff, &interfaces, list_node)
-		/* if we did not receive a response, retry */
-		if (iff->req_sent && !iff->resp_recv &&
-		    retry_count++ < MAX_VLAN_RETRIES) {
-			FIP_LOG_DBG("VLAN discovery RETRY [%d]", retry_count);
-			goto retry;
+	TAILQ_FOREACH(iff, &interfaces, list_node) {
+		if (!iff->fip_ready) {
+			FIP_LOG_DBG("if %d: skipping, FIP not ready\n",
+				    iff->ifindex);
+			continue;
 		}
+		if (!iff->running && iff->linkup_sent) {
+			FIP_LOG_DBG("if %d: waiting for IFF_RUNNING [%d]\n",
+				    iff->ifindex, retry_count);
+			retry_iff++;
+			continue;
+		}
+		/* if we did not receive a response, retry */
+		if (iff->req_sent && !iff->resp_recv) {
+			FIP_LOG_DBG("if %d: VLAN discovery RETRY [%d]",
+				    iff->ifindex, retry_count);
+			iff->req_sent = false;
+			retry_iff++;
+			continue;
+		}
+		if (config.create) {
+			struct iff *vlan;
+
+			TAILQ_FOREACH(vlan, &iff->vlans, list_node) {
+				if (!vlan->running) {
+					FIP_LOG_DBG("vlan %d: waiting for "
+						    "IFF_RUNNING [%d]",
+						    vlan->ifindex, retry_count);
+					retry_iff++;
+					continue;
+				}
+			}
+		}
+	}
+	if (retry_iff && retry_count++ < config.link_retry) {
+		recv_loop(1000);
+		retry_iff = 0;
+		goto retry;
+	}
 }
 
 static void cleanup_interfaces(void)
 {
 	struct iff *iff;
-	int i;
-	int skipped = 0;
 
-	if (config.automode) {
-		TAILQ_FOREACH(iff, &interfaces, list_node) {
-			if (iff->linkup_sent &&
-			    (!iff->running || !iff->req_sent || !iff->resp_recv)) {
-				FIP_LOG_DBG("shutdown if %d",
-					    iff->ifindex);
-				rtnl_set_iff_down(iff->ifindex, NULL);
-				iff->linkup_sent = false;
-			}
-		}
-	} else {
-		for (i = 0; i < config.namec; i++) {
-			iff = lookup_iff(0, config.namev[i]);
-			if (!iff) {
-				skipped++;
+	TAILQ_FOREACH(iff, &interfaces, list_node) {
+		if (iff->linkup_sent) {
+			if (config.link_up && iff->resp_recv)
 				continue;
-			}
-			if (iff->linkup_sent &&
-			    (!iff->running || !iff->req_sent || !iff->resp_recv)) {
+			if (iff->fcoe_started)
+				continue;
+			if (TAILQ_EMPTY(&iff->vlans)) {
 				FIP_LOG_DBG("shutdown if %d",
 					    iff->ifindex);
 				rtnl_set_iff_down(iff->ifindex, NULL);
@@ -881,8 +936,8 @@ static void cleanup_interfaces(void)
 			}
 		}
 	}
-
 }
+
 /* this is to not require headers from libcap */
 static inline int capget(cap_user_header_t hdrp, cap_user_data_t datap)
 {
@@ -924,7 +979,7 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	ns = rtnl_socket();
+	ns = rtnl_socket(RTMGRP_LINK);
 	if (ns < 0) {
 		rc = ns;
 		goto ns_err;
@@ -934,29 +989,24 @@ int main(int argc, char **argv)
 	determine_libfcoe_interface();
 
 	find_interfaces(ns);
-	while ((TAILQ_EMPTY(&interfaces)) && ++find_cnt < 5) {
-		FIP_LOG_DBG("no interfaces found, trying again");
-		find_interfaces(ns);
-	}
+	if (config.automode)
+		while ((TAILQ_EMPTY(&interfaces)) && ++find_cnt < 5) {
+			FIP_LOG_DBG("no interfaces found, trying again");
+			find_interfaces(ns);
+		}
 
 	if (TAILQ_EMPTY(&interfaces)) {
-		FIP_LOG_ERR(ENODEV, "no interfaces to perform discovery on");
+		if (config.automode)
+			FIP_LOG_ERR(ENODEV,
+				    "no interfaces to perform discovery on");
+		else
+			FIP_LOG("no interfaces to perform discovery on");
 		exit(1);
 	}
 
 	do_vlan_discovery();
 
 	rc = print_results();
-	if (!rc && config.create) {
-		create_missing_vlans();
-		/*
-		 * need to listen for the RTM_NETLINK messages
-		 * about the new VLAN devices
-		 */
-		recv_loop(500);
-	}
-	if (!rc && config.start)
-		start_fcoe();
 
 	cleanup_interfaces();
 

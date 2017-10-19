@@ -60,7 +60,7 @@
 #include "fcoemon.h"
 #include "fcoe_clif.h"
 #include "fcoe_utils.h"
-#include "hbaapi.h"
+#include "sysfs_hba.h"
 #include "strarr.h"
 
 #include "fip.h"
@@ -557,6 +557,9 @@ static int fcm_read_config_files(void)
 		if (!strncasecmp(val, "yes", 3) && rc == 1)
 			next->dcb_required = 1;
 
+		if (next->dcb_required == 1 && fcoe_config.dcb_init == 0)
+			fcoe_config.dcb_init = 1;
+
 		/* AUTO_VLAN */
 		rc = fcm_read_config_variable(file, val, sizeof(val),
 					      fp, CFG_IF_VAR_AUTOVLAN);
@@ -800,12 +803,12 @@ static void fcm_fc_event_log(struct fc_nl_event *fe)
 	for (i = 0; i < ARRAY_SIZE(fc_host_event_code_names); i++) {
 		if (fe->event_code == fc_host_event_code_names[i].value) {
 			/* only do u32 data even len is not, e.g. vendor */
-			FCM_LOG("FC_HOST_EVENT %d at %" PRIu64 " secs on host%d:"
-				"code %d=%s datalen %d data=%d\n",
-				fe->event_num, fe->seconds,
-				fe->host_no, fe->event_code,
-				fc_host_event_code_names[i].name,
-				fe->event_datalen, fe->event_data);
+			FCM_LOG_DBG("FC_HOST_EVENT %d at %" PRIu64 " secs on "
+				    "host%d code %d=%s datalen %d data=%d\n",
+				    fe->event_num, fe->seconds,
+				    fe->host_no, fe->event_code,
+				    fc_host_event_code_names[i].name,
+				    fe->event_datalen, fe->event_data);
 			break;
 		}
 	}
@@ -1341,6 +1344,7 @@ STR_ARR(ieee_states, "Unknown", "Out of range",
 	[IEEE_INIT] = "IEEE_INIT",
 	[IEEE_GET_STATE] = "IEEE_GET_STATE",
 	[IEEE_DONE] = "IEEE_DONE",
+	[IEEE_ACTIVE] = "IEEE_ACTIVE",
 );
 
 static void
@@ -1357,12 +1361,8 @@ ieee_state_set(struct fcm_netif *ff, enum ieee_state new_state)
 				getstr(&ieee_states, new_state));
 	}
 
-	if (new_state == IEEE_GET_STATE) {
-		ff->ieee_state = new_state;
+	if (new_state == IEEE_GET_STATE)
 		clear_ieee_info(ff);
-		ieee_get_req(ff);
-		return;
-	}
 
 	ff->ieee_state = new_state;
 	ff->ieee_resp_pending = 0;
@@ -2637,7 +2637,7 @@ static void fcm_dcbd_get_oper(struct fcm_netif *ff, char *resp, char *cp)
 
 	if (ep) {
 		FCM_LOG_DEV(ff, "Invalid get oper response "
-			    "parse error byte %ld, resp %s", ep - cp, cp);
+			    "parse error byte %td, resp %s", ep - cp, cp);
 		fcm_dcbd_state_set(ff, FCD_ERROR);
 	} else {
 		if (val && fcoe_config.debug)
@@ -3035,6 +3035,44 @@ static void fcm_fcoe_action(struct fcoe_port *p)
 
 /*
  * Called for all ports.  For FCoE ports and candidates,
+ * get IEEE DCBX information and set the next action.
+ */
+static void fcm_netif_ieee_advance(struct fcm_netif *ff)
+{
+	enum fcp_action action;
+
+	ASSERT(ff);
+	ASSERT(fcm_clif);
+
+	if (fcm_clif->cl_busy)
+		return;
+
+	if (ff->ieee_resp_pending)
+		return;
+
+	switch (ff->ieee_state) {
+	case IEEE_INIT:
+		break;
+	case IEEE_GET_STATE:
+		ieee_get_req(ff);
+		break;
+	case IEEE_DONE:
+		action = validate_ieee_info(ff);
+		if (action == FCP_ACTIVATE_IF) {
+			fcp_action_set(ff->ifname, action);
+			ieee_state_set(ff, IEEE_ACTIVE);
+		}
+		break;
+	case IEEE_ACTIVE:
+		/* TBD enable and disable if needed in IEEE mode */
+		break;
+	default:
+		break;
+	}
+}
+
+/*
+ * Called for all ports.  For FCoE ports and candidates,
  * get information and send to dcbd.
  */
 static void fcm_netif_advance(struct fcm_netif *ff)
@@ -3161,8 +3199,10 @@ static void fcm_handle_changes(void)
 	/*
 	 * Perform pending actions (dcbd queries) on network interfaces.
 	 */
-	TAILQ_FOREACH(ff, &fcm_netif_head, ff_list)
+	TAILQ_FOREACH(ff, &fcm_netif_head, ff_list) {
 		fcm_netif_advance(ff);
+		fcm_netif_ieee_advance(ff);
+	}
 
 	/*
 	 * Perform actions on FCoE ports
@@ -3546,11 +3586,53 @@ err:
 	sendto(snum, rbuf, MSG_RBUF, 0, (struct sockaddr *)&from, fromlen);
 }
 
+static int fcm_systemd_socket(void)
+{
+	char *env, *ptr;
+	unsigned int p, l;
+
+	env = getenv("LISTEN_PID");
+	if (!env)
+		return -1;
+
+	p = strtoul(env, &ptr, 10);
+	if (ptr && ptr == env) {
+		FCM_LOG_DBG("Invalid value '%s' for LISTEN_PID\n", env);
+		return -1;
+	}
+	if ((pid_t)p != getpid()) {
+		FCM_LOG_DBG("Invalid PID '%d' from LISTEN_PID\n", p);
+		return -1;
+	}
+	env = getenv("LISTEN_FDS");
+	if (!env) {
+		FCM_LOG_DBG("LISTEN_FDS is not set\n");
+		return -1;
+	}
+	l = strtoul(env, &ptr, 10);
+	if (ptr && ptr == env) {
+		FCM_LOG_DBG("Invalid value '%s' for LISTEN_FDS\n", env);
+		return -1;
+	}
+	if (l != 1) {
+		FCM_LOG_DBG("LISTEN_FDS specified %d fds\n", l);
+		return -1;
+	}
+	/* systemd returns fds with an offset of '3' */
+	return 3;
+}
+
 static int fcm_srv_create(struct fcm_srv_info *srv_info)
 {
 	socklen_t addrlen;
 	struct sockaddr_un addr;
 	int rc = 0;
+
+	srv_info->srv_sock = fcm_systemd_socket();
+	if (srv_info->srv_sock > 0) {
+		FCM_LOG_DBG("Using systemd socket\n");
+		goto out_done;
+	}
 
 	srv_info->srv_sock = socket(AF_LOCAL, SOCK_DGRAM, 0);
 	if (srv_info->srv_sock < 0) {
@@ -3570,7 +3652,7 @@ static int fcm_srv_create(struct fcm_srv_info *srv_info)
 		rc = errno;
 		goto err_close;
 	}
-
+out_done:
 	sa_select_add_fd(srv_info->srv_sock, fcm_srv_receive,
 			 NULL, NULL, srv_info);
 
@@ -3635,11 +3717,6 @@ int main(int argc, char **argv)
 	if (argc != optind)
 		fcm_usage();
 
-	if (!fcm_fg && daemon(0, !fcoe_config.use_syslog)) {
-		FCM_LOG("Starting daemon failed");
-		exit(EXIT_FAILURE);
-	}
-
 	umask(0);
 
 	/*
@@ -3686,22 +3763,42 @@ int main(int argc, char **argv)
 	}
 
 	fcm_fcoe_init();
-	fcm_fc_events_init();
-	fcm_link_init();	/* NETLINK_ROUTE protocol */
-	fcm_dcbd_init();
-	fcm_srv_create(&srv_info);
+	rc = fcm_fc_events_init();
+	if (rc != 0)
+		exit(1);
+
+	rc = fcm_link_init();	/* NETLINK_ROUTE protocol */
+	if (rc != 0)
+		goto err_cleanup;
+
+	if (fcoe_config.dcb_init)
+		fcm_dcbd_init();
+
+	rc = fcm_srv_create(&srv_info);
+	if (rc != 0)
+		goto err_cleanup;
+
+	if (!fcm_fg && daemon(0, !fcoe_config.use_syslog)) {
+		FCM_LOG("Starting daemon failed");
+		goto err_cleanup;
+	}
+
 	sa_select_set_callback(fcm_handle_changes);
 
 	rc = sa_select_loop();
 	if (rc < 0) {
 		FCM_LOG_ERR(rc, "select error\n");
-		exit(EXIT_FAILURE);
+		goto err_cleanup;
 	}
 	fcm_dcbd_shutdown();
 	fcm_srv_destroy(&srv_info);
 	if (rc == SIGHUP)
 		fcm_cleanup();
 	return 0;
+
+err_cleanup:
+	fcm_cleanup();
+	exit(1);
 }
 
 /*******************************************************

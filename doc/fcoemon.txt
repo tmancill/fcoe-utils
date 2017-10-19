@@ -56,7 +56,7 @@ OPTIONS
 *-d*, *--debug*::
 	Enable debugging messages.
 *-l*, *--legacy*::
-	Force fcoemon to use the legacy /sys/modlue/libfcoe/parameters/
+	Force fcoemon to use the legacy /sys/module/libfcoe/parameters/
 	interface. The default is to use the newer /sys/bus/fcoe/ interfaces
 	if they are available.
 *-s*, *--syslog*::
@@ -165,6 +165,13 @@ option). *SUPPORTED_DRIVERS* is the list of drivers to automatically load
 during fcoe service start. Any changes to this file will require a restart
 of the *fcoe* service.
 
+/etc/sysconfig/fcoe
+~~~~~~~~~~~~~~~~~~~
+On systemd-enabled systems, this is the primary configuration file used for
+the *fcoe* system service. Add *--debug* to *FCOEMON_OPTS* to enable debug 
+log messages. Any changes to this file will require a restart of the *fcoe*
+service.
+
 /etc/fcoe/cfg-<ifname>
 ~~~~~~~~~~~~~~~~~~~~~~
 These files are read by *fcoemon* on initialization. They are used to
@@ -214,6 +221,7 @@ must have compatible settings For DCB and FCoE to function properly.
 ~~~~~~~~~~~~~~~~
 This is the *fcoe* system service script. This script is invoked by the
 init process or by the service command to start and stop the *fcoemon*.
+On systemd-enabled systems, *fcoemon* is controlled via the *fcoe.service* unit.
 
 VLAN NAMING CONVENTIONS
 -----------------------
