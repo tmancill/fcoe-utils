@@ -1,3 +1,9 @@
+fcoe-utils (1.0.31+git20160622.5dfd3e4-2) unstable; urgency=medium
+
+  * Start fcoemon before the network
+
+ -- Valentin Vidic <Valentin.Vidic@CARNet.hr>  Thu, 02 Nov 2017 21:14:13 +0100
+
 fcoe-utils (1.0.31+git20160622.5dfd3e4-1) unstable; urgency=medium
 
   [ Jacob Luna Lundberg ]
